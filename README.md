@@ -39,14 +39,28 @@ epsilon-enclave/
 
 ## Execution Flow
 
-```
-1. Coordinator requests public key from enclave (VSock CID 18, port 5005)
-2. Enclave generates RSA-2048 keypair, returns public key
-3. Coordinator encrypts data with public key (hybrid: AES-256-CBC + RSA-OAEP)
-4. Coordinator sends encrypted bundle + encrypted CSV to enclave
-5. Enclave decrypts, executes script, generates attestation document
-6. Enclave returns result + AWS Nitro attestation (COSE_Sign1)
-7. Enclave deletes private key from memory (single-use session)
+```mermaid
+sequenceDiagram
+    participant C as Coordinator
+    participant E as Enclave (CID 18)
+    participant N as /dev/nsm
+
+    C->>E: generate_rsa_keypair (job_id)
+    E->>E: Generate RSA-2048 keypair
+    E-->>C: public_key + session_id
+
+    C->>C: Encrypt ZIP bundle (AES-256-CBC + RSA-OAEP)
+    C->>C: Encrypt CSV data (AES-256-CBC + RSA-OAEP)
+
+    C->>E: execute_script_rsa_hybrid (encrypted_data, encrypted_csv, session_id)
+    E->>E: Decrypt AES key with RSA private key
+    E->>E: Decrypt ZIP + CSV with AES-256-CBC
+    E->>E: Extract bundle, inject CSV
+    E->>E: Execute script in subprocess
+    E->>N: NSM ioctl (attestation request)
+    N-->>E: COSE_Sign1 attestation document
+    E->>E: Delete private key from memory
+    E-->>C: result + attestation + timing
 ```
 
 ## Per-Operation Timing
