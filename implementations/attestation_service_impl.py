@@ -13,7 +13,13 @@ import os
 import struct
 import fcntl
 import ctypes
+import time
+import traceback
 from typing import Tuple, Dict, Any, Optional
+
+import cbor2
+
+from interfaces.attestation_interface import IAttestationService
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +38,7 @@ class NSMError(Exception):
     pass
 
 
-class AttestationService:
+class AttestationService(IAttestationService):
     """
     Service for generating Nitro Enclave attestation documents.
 
@@ -71,11 +77,6 @@ class AttestationService:
         public_key: Optional[bytes] = None
     ) -> bytes:
         """Build CBOR-encoded attestation request."""
-        try:
-            import cbor2
-        except ImportError:
-            raise NSMError("cbor2 library required for attestation")
-
         # Build the request map per NSM API spec
         attestation_params = {}
         if user_data:
@@ -90,11 +91,6 @@ class AttestationService:
 
     def _parse_attestation_response(self, response_data: bytes) -> Tuple[bool, Any]:
         """Parse CBOR-encoded attestation response."""
-        try:
-            import cbor2
-        except ImportError:
-            raise NSMError("cbor2 library required for attestation")
-
         response = cbor2.loads(response_data)
         logger.info(f"[ATTESTATION] Parsed response keys: {list(response.keys()) if isinstance(response, dict) else type(response)}")
 
@@ -206,26 +202,24 @@ class AttestationService:
     ) -> Tuple[bool, Dict[str, Any]]:
         """Generate attestation using direct ioctl to /dev/nsm."""
         try:
-            import time as _time
-
             # Build CBOR request
-            t0 = _time.time()
+            t0 = time.time()
             request_data = self._build_attestation_request(user_data, nonce, public_key)
-            cbor_build_ms = round((_time.time() - t0) * 1000, 2)
+            cbor_build_ms = round((time.time() - t0) * 1000, 2)
 
             logger.info(f"[ATTESTATION] Sending ioctl, request={len(request_data)}B, user_data={len(user_data) if user_data else 0}B, nonce={len(nonce) if nonce else 0}B")
 
             # Send to NSM via ioctl
-            t0 = _time.time()
+            t0 = time.time()
             response_data = self._nsm_ioctl(request_data)
-            nsm_ioctl_ms = round((_time.time() - t0) * 1000, 2)
+            nsm_ioctl_ms = round((time.time() - t0) * 1000, 2)
 
             logger.info(f"[ATTESTATION] Received response: {len(response_data)} bytes (ioctl={nsm_ioctl_ms}ms)")
 
             # Parse CBOR response
-            t0 = _time.time()
+            t0 = time.time()
             success, result = self._parse_attestation_response(response_data)
-            cbor_parse_ms = round((_time.time() - t0) * 1000, 2)
+            cbor_parse_ms = round((time.time() - t0) * 1000, 2)
 
             logger.info(f"[TIMING] nsm_cbor_build={cbor_build_ms}ms nsm_ioctl={nsm_ioctl_ms}ms nsm_cbor_parse={cbor_parse_ms}ms")
 
@@ -271,7 +265,6 @@ class AttestationService:
             }
         except Exception as e:
             logger.error(f"[ATTESTATION] Attestation failed: {e}")
-            import traceback
             logger.error(f"[ATTESTATION] Traceback: {traceback.format_exc()}")
             return False, {
                 'error': 'NSM_EXCEPTION',
@@ -291,8 +284,6 @@ class AttestationService:
         This is what users receive as proof their code ran in the enclave.
         """
         try:
-            import time
-
             # Create user_data containing execution proof
             proof_data = {
                 'job_id': job_id,
@@ -350,6 +341,5 @@ class AttestationService:
         if self._nsm_fd is not None:
             try:
                 os.close(self._nsm_fd)
-                logger.info("[ATTESTATION] NSM device closed")
-            except:
+            except OSError:
                 pass

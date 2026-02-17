@@ -3,17 +3,16 @@ KeyPair Manager Implementation
 Concrete implementation of IKeyPairManager interface for RSA key management
 """
 import logging
+import threading
 import time
 import uuid
 import base64
 from typing import Tuple, Dict, Any, Optional
 from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography.hazmat.primitives import serialization, hashes
+from cryptography.hazmat.primitives import serialization
 
-try:
-    from interfaces import IKeyPairManager
-except ImportError:
-    from ..interfaces import IKeyPairManager
+from interfaces import IKeyPairManager
+from config import SESSION_TTL, CLEANUP_INTERVAL, ALLOWED_KEY_SIZES
 
 logger = logging.getLogger(__name__)
 
@@ -24,18 +23,37 @@ class KeyPairManagerImpl(IKeyPairManager):
     """
 
     def __init__(self):
-        """
-        Initialize keypair manager with in-memory storage
-        """
-        self.active_sessions = {}  # {session_id: {job_id, private_key, public_key, metadata, created_at, ttl}}
-        self._supported_formats = {
-            'PEM': 'Privacy-Enhanced Mail format',
-            'DER': 'Distinguished Encoding Rules format',
-            'base64': 'Base64 encoded PEM',
-            'SSH': 'SSH public key format',
-            'JWK': 'JSON Web Key format'
-        }
-        self._default_ttl = 3600  # 1 hour
+        self._lock = threading.Lock()
+        self.active_sessions: Dict[str, Dict[str, Any]] = {}
+        self._default_ttl = SESSION_TTL
+
+        # Start background cleanup thread
+        self._cleanup_interval = CLEANUP_INTERVAL
+        self._cleanup_thread = threading.Thread(
+            target=self._cleanup_loop,
+            daemon=True,
+        )
+        self._cleanup_thread.start()
+        logger.info(f"[KEYPAIR] Session cleanup thread started (interval={self._cleanup_interval}s, ttl={self._default_ttl}s)")
+
+    def _cleanup_loop(self):
+        """Periodically remove expired sessions."""
+        while True:
+            time.sleep(self._cleanup_interval)
+            self._purge_expired_sessions()
+
+    def _purge_expired_sessions(self):
+        """Remove all expired sessions."""
+        now = time.time()
+        with self._lock:
+            expired = [
+                sid for sid, data in self.active_sessions.items()
+                if (now - data.get('created_at', 0)) >= data.get('ttl', self._default_ttl)
+            ]
+            for sid in expired:
+                del self.active_sessions[sid]
+            if expired:
+                logger.info(f"[KEYPAIR] Purged {len(expired)} expired sessions")
 
     def generate_keypair(
         self,
@@ -48,21 +66,17 @@ class KeyPairManagerImpl(IKeyPairManager):
         try:
             logger.info(f"[KEYPAIR] Generating RSA-{key_size} key pair for job {job_id}")
 
-            # Validate key size
-            if key_size not in [2048, 3072, 4096]:
-                return False, f"Unsupported key size: {key_size}. Supported: 2048, 3072, 4096"
+            if key_size not in ALLOWED_KEY_SIZES:
+                return False, f"Unsupported key size: {key_size}. Supported: {ALLOWED_KEY_SIZES}"
 
-            # Generate RSA key pair
             private_key = rsa.generate_private_key(
                 public_exponent=65537,
                 key_size=key_size
             )
             public_key = private_key.public_key()
 
-            # Create session ID
             session_id = f"rsa-session-{uuid.uuid4().hex[:8]}"
 
-            # Serialize keys
             private_pem = private_key.private_bytes(
                 encoding=serialization.Encoding.PEM,
                 format=serialization.PrivateFormat.PKCS8,
@@ -74,7 +88,6 @@ class KeyPairManagerImpl(IKeyPairManager):
                 format=serialization.PublicFormat.SubjectPublicKeyInfo
             ).decode('utf-8')
 
-            # Store keypair with metadata
             session_data = {
                 'job_id': job_id,
                 'private_key': private_pem,
@@ -91,11 +104,10 @@ class KeyPairManagerImpl(IKeyPairManager):
                 }
             }
 
-            self.active_sessions[session_id] = session_data
+            with self._lock:
+                self.active_sessions[session_id] = session_data
 
-            logger.info(f"[KEYPAIR] Generated RSA-{key_size} key pair for job {job_id}")
-            logger.info(f"[KEYPAIR] Private key stored in memory (session {session_id})")
-            logger.info(f"[KEYPAIR] Public key ready for client encryption")
+            logger.info(f"[KEYPAIR] Generated RSA-{key_size} key pair for job {job_id}, session {session_id}")
 
             return True, session_id
 
@@ -106,7 +118,7 @@ class KeyPairManagerImpl(IKeyPairManager):
     def get_public_key(
         self,
         session_id: str,
-        format: str = "PEM"
+        key_format: str = "PEM"
     ) -> Optional[str]:
         """
         Get the public key for a session
@@ -118,23 +130,19 @@ class KeyPairManagerImpl(IKeyPairManager):
 
             public_key_pem = session['public_key']
 
-            if format == "PEM":
+            if key_format == "PEM":
                 return public_key_pem
-            elif format == "base64":
+            elif key_format == "base64":
                 return base64.b64encode(public_key_pem.encode()).decode()
-            elif format == "DER":
-                # Convert PEM to DER
+            elif key_format == "DER":
                 public_key = serialization.load_pem_public_key(public_key_pem.encode())
                 der_bytes = public_key.public_bytes(
                     encoding=serialization.Encoding.DER,
                     format=serialization.PublicFormat.SubjectPublicKeyInfo
                 )
                 return base64.b64encode(der_bytes).decode()
-            elif format == "SSH":
-                # Convert to SSH format (simplified)
-                return f"ssh-rsa {base64.b64encode(public_key_pem.encode()).decode()}"
             else:
-                logger.error(f"[KEYPAIR] Unsupported format: {format}")
+                logger.error(f"[KEYPAIR] Unsupported format: {key_format}")
                 return None
 
         except Exception as e:
@@ -152,7 +160,6 @@ class KeyPairManagerImpl(IKeyPairManager):
             session = self._get_valid_session(session_id)
             if not session:
                 return None
-
             return session['private_key']
 
         except Exception as e:
@@ -167,15 +174,15 @@ class KeyPairManagerImpl(IKeyPairManager):
         Securely delete a key pair
         """
         try:
-            if session_id in self.active_sessions:
-                job_id = self.active_sessions[session_id].get('job_id', 'unknown')
-                del self.active_sessions[session_id]
-                logger.info(f"[KEYPAIR] Keypair deleted for session {session_id} (job {job_id})")
-                logger.info(f"[KEYPAIR] Private key removed from memory")
-                return True
-            else:
-                logger.warning(f"[KEYPAIR] Session {session_id} not found for deletion")
-                return False
+            with self._lock:
+                if session_id in self.active_sessions:
+                    job_id = self.active_sessions[session_id].get('job_id', 'unknown')
+                    del self.active_sessions[session_id]
+                    logger.info(f"[KEYPAIR] Keypair deleted for session {session_id} (job {job_id})")
+                    return True
+                else:
+                    logger.warning(f"[KEYPAIR] Session {session_id} not found for deletion")
+                    return False
 
         except Exception as e:
             logger.error(f"[KEYPAIR] Failed to delete keypair: {str(e)}")
@@ -185,18 +192,19 @@ class KeyPairManagerImpl(IKeyPairManager):
         """
         Get session if it exists and is valid (not expired)
         """
-        if session_id not in self.active_sessions:
-            logger.error(f"[KEYPAIR] Session {session_id} not found")
-            return None
+        with self._lock:
+            if session_id not in self.active_sessions:
+                logger.error(f"[KEYPAIR] Session {session_id} not found")
+                return None
 
-        session = self.active_sessions[session_id]
+            session = self.active_sessions[session_id]
 
-        if not self._is_session_valid(session):
-            logger.warning(f"[KEYPAIR] Session {session_id} expired, cleaning up")
-            del self.active_sessions[session_id]
-            return None
+            if not self._is_session_valid(session):
+                logger.warning(f"[KEYPAIR] Session {session_id} expired, cleaning up")
+                del self.active_sessions[session_id]
+                return None
 
-        return session
+            return session
 
     def _is_session_valid(self, session_data: Dict[str, Any]) -> bool:
         """
@@ -204,5 +212,4 @@ class KeyPairManagerImpl(IKeyPairManager):
         """
         created_at = session_data.get('created_at', 0)
         ttl = session_data.get('ttl', self._default_ttl)
-
         return (time.time() - created_at) < ttl

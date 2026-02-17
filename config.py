@@ -28,6 +28,14 @@ MAX_OUTPUT_SIZE_MB = int(os.getenv('MAX_OUTPUT_SIZE_MB', '50'))
 SESSION_TTL = int(os.getenv('SESSION_TTL', '3600'))  # 1 hour
 CLEANUP_INTERVAL = int(os.getenv('CLEANUP_INTERVAL', '300'))  # 5 minutes
 
+# Server socket timeouts
+CLIENT_RECV_TIMEOUT = int(os.getenv('CLIENT_RECV_TIMEOUT', '300'))  # seconds
+CLIENT_SEND_TIMEOUT = int(os.getenv('CLIENT_SEND_TIMEOUT', '60'))  # seconds
+
+# ZIP extraction safety limits
+MAX_ZIP_ENTRIES = int(os.getenv('MAX_ZIP_ENTRIES', '500'))
+MAX_ZIP_TOTAL_SIZE = int(os.getenv('MAX_ZIP_TOTAL_SIZE', str(200 * 1024 * 1024)))  # 200 MB
+
 # Security settings
 DEFAULT_KEY_SIZE = int(os.getenv('DEFAULT_KEY_SIZE', '2048'))
 ALLOWED_KEY_SIZES = [2048, 3072, 4096]

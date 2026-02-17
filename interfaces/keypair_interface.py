@@ -34,14 +34,14 @@ class IKeyPairManager(ABC):
     def get_public_key(
         self,
         session_id: str,
-        format: str = "PEM"
+        key_format: str = "PEM"
     ) -> Optional[str]:
         """
         Get the public key for a session
 
         Args:
             session_id: Session identifier
-            format: Key format (PEM, DER, base64)
+            key_format: Key format (PEM, DER, base64)
 
         Returns:
             Base64 encoded public key if found, None otherwise

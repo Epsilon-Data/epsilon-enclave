@@ -8,18 +8,21 @@ Encryption Format (matching coordinator):
 - AES-256-CBC with PKCS7 padding for data encryption
 """
 import base64
+import hashlib
 import logging
+import os
+import tempfile
 import time
+import traceback
 from typing import Tuple, Dict, Any, Optional
+
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
 from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives import padding as sym_padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from cryptography.fernet import Fernet
 
-try:
-    from interfaces import IDecryptService
-except ImportError:
-    from ..interfaces import IDecryptService
+from interfaces import IDecryptService
 
 logger = logging.getLogger(__name__)
 
@@ -131,7 +134,6 @@ class DecryptServiceImpl(IDecryptService):
 
         except Exception as e:
             logger.error(f"[DECRYPT] RSA hybrid decryption failed: {str(e)}")
-            import traceback
             logger.error(f"[DECRYPT] Traceback: {traceback.format_exc()}")
             return False, str(e).encode()
 
@@ -278,12 +280,9 @@ class DecryptServiceImpl(IDecryptService):
             if not success:
                 return False, decrypted_content.decode() if isinstance(decrypted_content, bytes) else decrypted_content
 
-            # Write decrypted content to temporary file
-            import tempfile
-            import os
-
-            temp_dir = tempfile.mkdtemp()
-            output_file = os.path.join(temp_dir, f"decrypted_{os.path.basename(file_path)}")
+            # Write decrypted content to temporary file alongside the original
+            output_dir = os.path.dirname(file_path)
+            output_file = os.path.join(output_dir, f"decrypted_{os.path.basename(file_path)}")
 
             with open(output_file, 'wb') as f:
                 f.write(decrypted_content)
@@ -418,8 +417,6 @@ class DecryptServiceImpl(IDecryptService):
             if expected_hash is None:
                 # Without expected hash, we can only verify basic data properties
                 return len(data) > 0
-
-            import hashlib
 
             # Calculate SHA256 hash of the data
             actual_hash = hashlib.sha256(data).hexdigest()

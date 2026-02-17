@@ -4,15 +4,13 @@ Simple logic: encrypted_data + session_id -> decrypt with private key -> execute
 """
 import json
 import logging
+import os
 import time
+import traceback
 from typing import Dict, Any, Optional
 
-try:
-    from interfaces import IRequestHandler, IDecryptService, IExecuteService, IKeyPairManager
-    from implementations.attestation_service_impl import AttestationService
-except ImportError:
-    from ..interfaces import IRequestHandler, IDecryptService, IExecuteService, IKeyPairManager
-    from .attestation_service_impl import AttestationService
+from interfaces import IRequestHandler, IDecryptService, IExecuteService, IKeyPairManager
+from interfaces.attestation_interface import IAttestationService
 
 logger = logging.getLogger(__name__)
 
@@ -27,13 +25,14 @@ class RequestHandlerImpl(IRequestHandler):
         decrypt_service: IDecryptService,
         execute_service: IExecuteService,
         keypair_manager: IKeyPairManager,
-        kms_attestation=None
+        attestation_service: IAttestationService,
+        kms_attestation=None,
     ):
         self.decrypt_service = decrypt_service
         self.execute_service = execute_service
         self.keypair_manager = keypair_manager
+        self.attestation_service = attestation_service
         self.kms_attestation = kms_attestation
-        self.attestation_service = AttestationService()
 
     def handle_request(self, request_data: str) -> Dict[str, Any]:
         """
@@ -43,6 +42,11 @@ class RequestHandlerImpl(IRequestHandler):
             request = self._parse_request(request_data)
             if request is None:
                 return self._error_response("Invalid JSON request")
+
+            # Validate required fields before dispatch
+            validation_error = self.validate_request(request)
+            if validation_error:
+                return self._error_response(validation_error)
 
             operation = request['operation']
             logger.info(f"[REQUEST] Operation: {operation}")
@@ -197,7 +201,6 @@ class RequestHandlerImpl(IRequestHandler):
 
         except Exception as e:
             logger.error(f"Execution error: {str(e)}")
-            import traceback
             logger.error(f"Traceback: {traceback.format_exc()}")
             return self._error_response(f"Execution error: {str(e)}")
 
@@ -223,9 +226,11 @@ class RequestHandlerImpl(IRequestHandler):
         return self._generate_keypair({'job_id': job_id})
 
     def get_session(self, session_id: str) -> Optional[Dict[str, Any]]:
-        """Get session metadata"""
-        metadata = self.keypair_manager.get_keypair_metadata(session_id)
-        return metadata
+        """Get session metadata (returns public key if session exists)"""
+        public_key = self.keypair_manager.get_public_key(session_id)
+        if public_key is None:
+            return None
+        return {'session_id': session_id, 'public_key': public_key}
 
     def cleanup_session(self, session_id: str) -> bool:
         """Clean up session and remove private key"""
@@ -302,9 +307,6 @@ class RequestHandlerImpl(IRequestHandler):
 
     def _get_enclave_info(self) -> Dict[str, Any]:
         """Get information about the enclave environment."""
-        import os
-        import hashlib
-
         return {
             'success': True,
             'enclave_info': {

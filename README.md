@@ -1,5 +1,7 @@
 # Epsilon Enclave
 
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+
 Secure execution environment running inside an AWS Nitro Enclave. Handles encrypted data ingestion, script execution, and attestation document generation.
 
 ## Architecture
@@ -19,15 +21,11 @@ epsilon-enclave/
 │   └── keypair_manager_impl.py
 ├── server/              # VSock server
 │   └── server.py
-├── scripts/             # Build & deploy scripts
-│   ├── deploy-ec2.sh    # Pull, build EIF, register PCRs, start
-│   ├── push-to-ghcr.sh  # Build & push multi-arch image
-│   ├── build-enclave.sh
-│   └── run-enclave.sh
 ├── .github/workflows/   # CI/CD
-│   └── build-enclave.yml # Auto-version, build, push to GHCR
-├── VERSION              # Current version (auto-bumped by CI)
-├── config.py            # Configuration
+│   ├── release-please.yml  # Automated versioning & changelog
+│   ├── pr-title.yml        # Conventional commit PR title check
+│   └── build-enclave.yml   # Build & push image on release
+├── config.py            # Configuration with env var overrides
 ├── factory.py           # Dependency injection factory
 ├── main.py              # Entry point
 ├── Dockerfile           # Container definition
@@ -56,26 +54,66 @@ All operations are instrumented and returned in the response `timing` field:
 | `script_execution_ms` | ~33ms | Python subprocess execution |
 | `attestation_generation_ms` | ~9ms | NSM ioctl + CBOR serialization |
 
+## API Operations
+
+### Generate RSA Keypair
+```json
+{"operation": "generate_rsa_keypair", "job_id": "job-123"}
+```
+
+### Execute Script (RSA Hybrid)
+```json
+{"operation": "execute_script_rsa_hybrid", "session_id": "rsa-session-...", "encrypted_data": "base64...", "encrypted_csv": "base64..."}
+```
+
+### Health Check
+```json
+{"operation": "health_check"}
+```
+
+### Get Attestation
+```json
+{"operation": "get_attestation"}
+```
+
+### Get Enclave Info
+```json
+{"operation": "get_enclave_info"}
+```
+
+## Configuration
+
+All settings can be overridden via environment variables.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `VSOCK_PORT` | 5005 | VSock port for communication |
+| `MAX_REQUEST_SIZE` | 10MB | Maximum request size |
+| `LOG_LEVEL` | INFO | Logging level |
+| `EXECUTION_TIMEOUT` | 300 | Script execution timeout (seconds) |
+| `SESSION_TTL` | 3600 | Session time-to-live (seconds) |
+| `CLEANUP_INTERVAL` | 300 | Session cleanup interval (seconds) |
+| `DEFAULT_KEY_SIZE` | 2048 | Default RSA key size |
+| `MAX_MEMORY_MB` | 512 | Max memory for script execution |
+| `MAX_OUTPUT_SIZE_MB` | 50 | Max script output size |
+
 ## Versioning
 
-Version is managed in the `VERSION` file and auto-bumped on every push to `main`:
+This project uses [release-please](https://github.com/googleapis/release-please) for automated versioning and changelog generation:
 
-- CI workflow reads `VERSION`, bumps patch, commits, tags, builds and pushes to GHCR
-- Image: `ghcr.io/epsilon-data/epsilon-enclave:<version>`
-- Each version produces unique PCR values (SHA-384 hashes of the enclave image)
+1. PR titles must follow [Conventional Commits](https://www.conventionalcommits.org/) (enforced by CI)
+2. PRs are squash-merged into `main`
+3. `release-please` opens a release PR that bumps the version and updates `CHANGELOG.md`
+4. Merging the release PR creates a GitHub release, which triggers the image build and push to GHCR
 
-### Current PCR Values (v1.1.0)
+Image: `ghcr.io/epsilon-data/epsilon-enclave:<version>`
 
-```
-PCR0: 78e341a193ca5c138b4f3c7f134e9ae7f09f519ae8bc01b858223965f5666987adeacb1281f7150b79ff2142f70fc522
-PCR1: 4b4d5b3661b3efc12920900c80e126e4ce783c522de6c02a2a5bf7af3a2b9327b86776f188e4be1c1c404a129dbda493
-PCR2: f709ec700918e00db8d6e11efdb297f03384805869ea6354330ffb5fde7e3a0cb9bbbce815cdc1f79478687ad29f207f
-```
+Each version produces unique PCR values (SHA-384 hashes of the enclave image).
 
 ## Deploy on EC2
 
 ```bash
-# Pull image, build EIF, register PCRs in DB, start enclave
+# Pull image, build EIF, register PCRs, start enclave
 ./scripts/deploy-ec2.sh 1.1.0
 ```
 
@@ -87,34 +125,23 @@ nitro-cli build-enclave --docker-uri ghcr.io/epsilon-data/epsilon-enclave:1.1.0 
 nitro-cli run-enclave --eif-path epsilon-enclave.eif --memory 4096 --cpu-count 2 --enclave-cid 18
 ```
 
-## Configuration
+## Local Development
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `VSOCK_PORT` | 5000 | VSock port for communication |
-| `MAX_REQUEST_SIZE` | 10MB | Maximum request size |
-| `LOG_LEVEL` | INFO | Logging level |
-| `EXECUTION_TIMEOUT` | 300 | Script execution timeout (seconds) |
-| `SESSION_TTL` | 3600 | Session time-to-live (seconds) |
-| `DEFAULT_KEY_SIZE` | 2048 | Default RSA key size |
-
-## API Operations
-
-### Generate Keypair
-```json
-{"operation": "generate_keypair", "job_id": "job-123"}
+```bash
+pip install -r requirements.txt
+python scripts/local-test-server.py
 ```
 
-### Execute Script (RSA Hybrid)
-```json
-{"operation": "execute_script_rsa_hybrid", "session_id": "rsa-session-...", "encrypted_data": "base64...", "encrypted_csv": "base64..."}
-```
+The local test server binds to `127.0.0.1:5005` using TCP instead of VSock, so you can develop and test without an EC2 instance.
 
-### Health Check
-```json
-{"operation": "health"}
-```
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, commit conventions, and PR process.
+
+## Security
+
+See [SECURITY.md](SECURITY.md) for reporting vulnerabilities.
 
 ## License
 
-Private - Epsilon Platform
+[Apache License 2.0](LICENSE)

@@ -1,20 +1,12 @@
 """
 Concrete implementations of enclave interfaces
 """
-try:
-    from .request_handler_impl import RequestHandlerImpl
-    from .decrypt_service_impl import DecryptServiceImpl
-    from .execute_service_impl import ExecuteServiceImpl
-    from .keypair_manager_impl import KeyPairManagerImpl
-    from .kms_attestation_impl import KMSAttestationService
-    from .attestation_service_impl import AttestationService
-except ImportError:
-    from request_handler_impl import RequestHandlerImpl
-    from decrypt_service_impl import DecryptServiceImpl
-    from execute_service_impl import ExecuteServiceImpl
-    from keypair_manager_impl import KeyPairManagerImpl
-    from kms_attestation_impl import KMSAttestationService
-    from attestation_service_impl import AttestationService
+from implementations.request_handler_impl import RequestHandlerImpl
+from implementations.decrypt_service_impl import DecryptServiceImpl
+from implementations.execute_service_impl import ExecuteServiceImpl
+from implementations.keypair_manager_impl import KeyPairManagerImpl
+from implementations.kms_attestation_impl import KMSAttestationService
+from implementations.attestation_service_impl import AttestationService
 
 __all__ = [
     'RequestHandlerImpl',
@@ -22,5 +14,5 @@ __all__ = [
     'ExecuteServiceImpl',
     'KeyPairManagerImpl',
     'KMSAttestationService',
-    'AttestationService'
+    'AttestationService',
 ]

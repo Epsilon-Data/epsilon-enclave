@@ -141,7 +141,8 @@ RUN amazon-linux-extras install python3.8 -y && \
         openssl \
         json-c \
         ca-certificates \
-    && yum clean all && \
+    && update-ca-trust && \
+    yum clean all && \
     alternatives --install /usr/bin/python3 python3 /usr/bin/python3.8 1 && \
     alternatives --install /usr/bin/pip3 pip3 /usr/bin/pip3.8 1
 
@@ -166,8 +167,6 @@ COPY *.py /app/
 COPY interfaces/ /app/interfaces/
 COPY implementations/ /app/implementations/
 COPY server/ /app/server/
-COPY start.sh /app/
-RUN chmod +x /app/start.sh
 
 # Environment configuration
 ENV LD_LIBRARY_PATH=/usr/lib64

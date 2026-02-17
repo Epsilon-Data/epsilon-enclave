@@ -9,15 +9,13 @@ import os
 import subprocess
 from typing import Tuple, Dict, Any, Optional
 
+from interfaces.kms_attestation_interface import IKMSAttestationService
+from config import KMSTOOL_PATH, KMS_PROXY_PORT, KMS_REGION
+
 logger = logging.getLogger(__name__)
 
-# Configuration
-KMSTOOL_PATH = os.getenv('KMSTOOL_PATH', '/app/kmstool_enclave_cli')
-KMS_PROXY_PORT = int(os.getenv('KMS_PROXY_PORT', '8000'))
-KMS_REGION = os.getenv('KMS_REGION', 'ap-southeast-2')
 
-
-class KMSAttestationService:
+class KMSAttestationService(IKMSAttestationService):
     """
     AWS Nitro Enclave KMS Attestation Service
 
@@ -87,7 +85,6 @@ class KMSAttestationService:
         try:
             logger.info("[KMS-ATTESTATION] Decrypting data key with attestation")
 
-            # Build command
             cmd = [
                 self.kmstool_path,
                 'decrypt',
@@ -96,14 +93,12 @@ class KMSAttestationService:
                 '--ciphertext', base64.b64encode(encrypted_data_key).decode()
             ]
 
-            # Add encryption context if provided
             if encryption_context:
                 for key, value in encryption_context.items():
                     cmd.extend(['--encryption-context', f'{key}={value}'])
 
             logger.debug(f"[KMS-ATTESTATION] Running: {cmd[0]} decrypt ...")
 
-            # Execute kmstool
             result = subprocess.run(
                 cmd,
                 capture_output=True,
@@ -115,7 +110,6 @@ class KMSAttestationService:
                 logger.error(f"[KMS-ATTESTATION] Decrypt failed: {error_msg}")
                 return False, error_msg.encode()
 
-            # Parse output (kmstool returns base64 plaintext)
             plaintext_b64 = result.stdout.decode().strip()
             plaintext = base64.b64decode(plaintext_b64)
 
@@ -150,7 +144,6 @@ class KMSAttestationService:
         try:
             logger.info("[KMS-ATTESTATION] Encrypting data key with attestation")
 
-            # Build command
             cmd = [
                 self.kmstool_path,
                 'encrypt',
@@ -160,14 +153,12 @@ class KMSAttestationService:
                 '--plaintext', base64.b64encode(plaintext_key).decode()
             ]
 
-            # Add encryption context if provided
             if encryption_context:
                 for key, value in encryption_context.items():
                     cmd.extend(['--encryption-context', f'{key}={value}'])
 
             logger.debug(f"[KMS-ATTESTATION] Running: {cmd[0]} encrypt ...")
 
-            # Execute kmstool
             result = subprocess.run(
                 cmd,
                 capture_output=True,
@@ -179,7 +170,6 @@ class KMSAttestationService:
                 logger.error(f"[KMS-ATTESTATION] Encrypt failed: {error_msg}")
                 return False, error_msg.encode()
 
-            # Parse output (kmstool returns base64 ciphertext)
             ciphertext_b64 = result.stdout.decode().strip()
             ciphertext = base64.b64decode(ciphertext_b64)
 
@@ -214,7 +204,6 @@ class KMSAttestationService:
         try:
             logger.info(f"[KMS-ATTESTATION] Generating {key_spec} data key with attestation")
 
-            # Build command
             cmd = [
                 self.kmstool_path,
                 'genkey',
@@ -224,14 +213,12 @@ class KMSAttestationService:
                 '--key-spec', key_spec
             ]
 
-            # Add encryption context if provided
             if encryption_context:
                 for key, value in encryption_context.items():
                     cmd.extend(['--encryption-context', f'{key}={value}'])
 
             logger.debug(f"[KMS-ATTESTATION] Running: {cmd[0]} genkey ...")
 
-            # Execute kmstool
             result = subprocess.run(
                 cmd,
                 capture_output=True,
@@ -243,7 +230,6 @@ class KMSAttestationService:
                 logger.error(f"[KMS-ATTESTATION] Generate key failed: {error_msg}")
                 return False, {"error": error_msg.encode()}
 
-            # Parse JSON output
             output = json.loads(result.stdout.decode())
 
             plaintext = base64.b64decode(output['Plaintext'])
