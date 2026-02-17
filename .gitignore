@@ -59,8 +59,6 @@ aws_credentials/
 # Scripts (internal ops, credentials)
 scripts/
 
-# Published PCR registry (internal)
-published/
 
 # Temporary files
 tmp/

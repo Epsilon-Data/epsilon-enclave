@@ -1,0 +1,14 @@
+{
+  "current_version": "1.0.0",
+  "versions": [
+    {
+      "version": "1.0.0",
+      "pcr0": "6165855369654a587bdad59fa532f430d7defa38ecf57eeac6d29c7e87a32b621891862d04fb64423f6bb1e1626fc026",
+      "pcr1": "4b4d5b3661b3efc12920900c80e126e4ce783c522de6c02a2a5bf7af3a2b9327b86776f188e4be1c1c404a129dbda493",
+      "pcr2": "a50f214952d1cc168b04da54db1b163a86e5ffefec223b7b640df88b665c3db745e9a6865a7db265374239fd264a5522",
+      "release_date": "2026-02-17",
+      "docker_image": "ghcr.io/epsilon-data/epsilon-enclave:1.0.0",
+      "source_commit": "0c7ecb59395315f700e7be125d7f4a527e86adb0"
+    }
+  ]
+}
