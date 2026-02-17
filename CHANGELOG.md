@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 1.0.0 (2026-02-17)
+
+
+### Features
+
+* v2.0.0 - code quality overhaul and open source preparation ([9e30d82](https://github.com/Epsilon-Data/epsilon-enclave/commit/9e30d82e6bec3ecd3d9381890888ed57676beca6))
+
+
+### Bug Fixes
+
+* add pull-requests read permission to pr-title workflow ([2932023](https://github.com/Epsilon-Data/epsilon-enclave/commit/293202350976664fc127f0380e031f10129cd05b))
+
 ## [Unreleased]
 
 ### Removed
