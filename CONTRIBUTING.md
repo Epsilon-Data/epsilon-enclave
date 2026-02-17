@@ -25,6 +25,18 @@ python scripts/local-test-server.py
 
 The local test server binds to `127.0.0.1:5005` using TCP instead of VSock, so you can develop and test without an EC2 instance.
 
+### Testing
+
+```bash
+# Terminal 1: start the server
+python scripts/local-test-server.py
+
+# Terminal 2: run the end-to-end test client
+python scripts/test-client.py
+```
+
+The test client generates a keypair, encrypts a test bundle, sends it for execution, and verifies the response.
+
 ## Commit Convention
 
 We use [Conventional Commits](https://www.conventionalcommits.org/). This is **enforced on PR titles** (not individual commits).
@@ -69,10 +81,22 @@ feat!: change response framing to length-prefix protocol
 
 1. Fork the repo and create a branch from `main`
 2. Make your changes
-3. Ensure your code works with the local test server
+3. Test with the local test server and test client
 4. Open a PR with a conventional commit title
 5. The PR title CI check must pass
 6. A maintainer will review and merge
+
+## Release Process
+
+Releases are fully automated:
+
+1. `feat:` and `fix:` commits on `main` trigger `release-please` to open a release PR
+2. The release PR bumps the version in `VERSION` and updates `CHANGELOG.md`
+3. Merging the release PR creates a GitHub Release
+4. The GitHub Release triggers the Docker image build and push to GHCR
+5. Deploy to EC2 is done manually (pull image, build EIF, start enclave)
+
+`docs:`, `refactor:`, `test:`, and `chore:` commits do **not** trigger a release.
 
 ## Architecture
 
@@ -92,6 +116,7 @@ config.py       <- All configuration with env var overrides
 - **No hardcoded values**: All limits and settings go in `config.py` with env var overrides
 - **Thread-safe**: The server handles concurrent connections; shared state needs locking
 - **Subprocess isolation**: User scripts run in subprocess with `cwd=` pointing to a temp directory
+- **Top-level imports**: All imports at the top of the file, use absolute imports
 
 ## Security
 
