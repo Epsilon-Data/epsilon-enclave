@@ -1,6 +1,8 @@
 # Epsilon Enclave
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/Epsilon-Data/epsilon-enclave)](https://github.com/Epsilon-Data/epsilon-enclave/releases/latest)
+[![GHCR](https://img.shields.io/badge/GHCR-epsilon--enclave-blue?logo=github)](https://github.com/orgs/Epsilon-Data/packages/container/package/epsilon-enclave)
 
 Secure execution environment running inside an AWS Nitro Enclave. Handles encrypted data ingestion, script execution, and attestation document generation.
 
@@ -116,7 +118,7 @@ This project uses [release-please](https://github.com/googleapis/release-please)
 3. `release-please` opens a release PR that bumps the version and updates `CHANGELOG.md`
 4. Merging the release PR creates a GitHub release, which triggers the image build and push to GHCR
 
-Image: `ghcr.io/epsilon-data/epsilon-enclave:<version>`
+Image: `ghcr.io/epsilon-data/epsilon-enclave:<version>` (see [latest release](https://github.com/Epsilon-Data/epsilon-enclave/releases/latest))
 
 ## PCR Verification
 
