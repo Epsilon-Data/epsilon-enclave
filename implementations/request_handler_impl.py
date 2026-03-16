@@ -59,6 +59,8 @@ class RequestHandlerImpl(IRequestHandler):
                 return {'success': True, 'message': 'Enclave healthy'}
             elif operation == 'get_attestation':
                 return self._get_attestation(request)
+            elif operation == 'get_attestation_for_proxy':
+                return self._get_attestation_for_proxy(request)
             elif operation == 'get_enclave_info':
                 return self._get_enclave_info()
             else:
@@ -218,6 +220,9 @@ class RequestHandlerImpl(IRequestHandler):
             for field in required:
                 if field not in request:
                     return f"Missing required field: {field}"
+        elif operation == 'get_attestation_for_proxy':
+            if 'job_id' not in request:
+                return "Missing required field: job_id"
 
         return None
 
@@ -277,6 +282,81 @@ class RequestHandlerImpl(IRequestHandler):
                 }
             }
         }
+
+    def _get_attestation_for_proxy(self, request: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Generate RSA keypair and attestation document for proxy mode.
+
+        The proxy needs to verify the enclave is genuine before trusting its public key.
+        This operation:
+        1. Generates an RSA keypair (like generate_rsa_keypair)
+        2. Embeds the public key hash in the attestation document's user_data
+        3. Returns both the public key and attestation document
+
+        The proxy can then:
+        - Verify the attestation against AWS Nitro root cert (proves real enclave)
+        - Hash the received public key and compare with user_data in attestation
+        - Trust the public key for encrypting query results
+        """
+        try:
+            import hashlib
+            import base64
+
+            job_id = request['job_id']
+            key_size = request.get('key_size', 2048)
+
+            # Step 1: Generate RSA keypair
+            success, session_id = self.keypair_manager.generate_keypair(job_id, key_size)
+            if not success:
+                return self._error_response(f"Keypair generation failed: {session_id}")
+
+            public_key = self.keypair_manager.get_public_key(session_id)
+            if not public_key:
+                return self._error_response("Failed to retrieve generated public key")
+
+            logger.info(f"[PROXY-ATTEST] Generated keypair for job {job_id}, session {session_id}")
+
+            # Step 2: Create user_data containing the public key hash
+            # This binds the public key to the attestation document
+            public_key_hash = hashlib.sha256(public_key.encode()).digest()
+
+            # Step 3: Generate attestation with public key hash as user_data
+            nonce = request.get('nonce')
+            if nonce:
+                nonce = nonce.encode() if isinstance(nonce, str) else nonce
+
+            success_attest, attestation = self.attestation_service.generate_attestation(
+                user_data=public_key_hash,
+                nonce=nonce
+            )
+
+            logger.info(f"[PROXY-ATTEST] Attestation generated: success={success_attest}, "
+                        f"real_enclave={self.attestation_service.is_real_enclave}")
+
+            return {
+                'success': True,
+                'session_id': session_id,
+                'public_key': public_key,
+                'public_key_hash': base64.b64encode(public_key_hash).decode(),
+                'job_id': job_id,
+                'key_size': key_size,
+                'attestation': attestation if success_attest else None,
+                'attestation_available': success_attest,
+                'is_real_enclave': self.attestation_service.is_real_enclave,
+                'verification_steps': [
+                    '1. Base64-decode the attestation document',
+                    '2. Parse CBOR and verify COSE_Sign1 signature against AWS Nitro root cert',
+                    '3. Extract user_data from the verified attestation',
+                    '4. Compute SHA-256 hash of the received public_key',
+                    '5. Compare the hash with user_data — they must match',
+                    '6. If match: the public key was generated inside a genuine Nitro enclave',
+                ]
+            }
+
+        except Exception as e:
+            logger.error(f"Proxy attestation error: {str(e)}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            return self._error_response(f"Proxy attestation error: {str(e)}")
 
     def _get_attestation(self, request: Dict[str, Any]) -> Dict[str, Any]:
         """Get attestation document with optional user data."""
