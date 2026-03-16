@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.0](https://github.com/Epsilon-Data/epsilon-enclave/compare/v1.0.0...v1.1.0) (2026-03-16)
+
+
+### Features
+
+* **enclave:** add proxy attestation operation for key binding ([20493a0](https://github.com/Epsilon-Data/epsilon-enclave/commit/20493a06bd97a13024944d924234a8ec6f41736d))
+* **enclave:** add proxy attestation operation for key binding ([57f9f1f](https://github.com/Epsilon-Data/epsilon-enclave/commit/57f9f1f2e1f7243546b8586b754c77d77ed34032))
+
 ## 1.0.0 (2026-02-17)
 
 
