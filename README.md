@@ -23,6 +23,7 @@ epsilon-enclave/
 │   ├── execute_service_impl.py
 │   ├── keypair_manager_impl.py
 │   ├── attestation_service_impl.py
+│   ├── local_attestation_service.py
 │   └── kms_attestation_impl.py
 ├── server/              # VSock server
 │   └── server.py
@@ -98,6 +99,12 @@ Communication uses VSock with auto-detected framing (length-prefix or raw JSON).
 {"operation": "get_attestation", "user_data": "optional", "nonce": "optional"}
 ```
 
+### Get Attestation for Proxy
+```json
+{"operation": "get_attestation_for_proxy", "job_id": "job-123", "nonce": "optional", "key_size": 2048}
+```
+Generates an RSA keypair and binds the public key to an attestation document via `user_data` (SHA-256 hash of the public key). The proxy can verify the attestation and trust the public key was generated inside the enclave.
+
 ### Get Enclave Info
 ```json
 {"operation": "get_enclave_info"}
@@ -122,6 +129,7 @@ All settings can be overridden via environment variables.
 | `CLIENT_SEND_TIMEOUT` | 60 | Socket send timeout (seconds) |
 | `MAX_ZIP_ENTRIES` | 500 | Max files in ZIP bundle |
 | `MAX_ZIP_TOTAL_SIZE` | 200MB | Max extracted ZIP size |
+| `ALLOW_LOCAL_ATTESTATION` | false | Enable local attestation fallback for dev (never in production) |
 
 ## Versioning
 
@@ -170,6 +178,14 @@ python scripts/local-test-server.py
 ```
 
 The local test server binds to `127.0.0.1:5005` using TCP instead of VSock, so you can develop and test without an EC2 instance.
+
+To enable local attestation (generates COSE_Sign1 documents signed by a local CA instead of AWS Nitro):
+
+```bash
+export ALLOW_LOCAL_ATTESTATION=true
+```
+
+> **Warning:** This must never be enabled in production. Local attestation documents are clearly marked with `is_real_enclave: false`.
 
 To run the end-to-end test:
 
