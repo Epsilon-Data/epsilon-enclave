@@ -2,6 +2,8 @@
 Request Handler Implementation
 Simple logic: encrypted_data + session_id -> decrypt with private key -> execute
 """
+import base64
+import hashlib
 import json
 import logging
 import os
@@ -299,9 +301,6 @@ class RequestHandlerImpl(IRequestHandler):
         - Trust the public key for encrypting query results
         """
         try:
-            import hashlib
-            import base64
-
             job_id = request['job_id']
             key_size = request.get('key_size', 2048)
 

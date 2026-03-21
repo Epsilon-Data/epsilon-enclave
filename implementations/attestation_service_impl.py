@@ -16,6 +16,8 @@ import ctypes
 import time
 import traceback
 from typing import Tuple, Dict, Any, Optional
+from config import ALLOW_LOCAL_ATTESTATION
+from implementations.local_attestation_service import generate_local_attestation
 
 import cbor2
 
@@ -79,11 +81,11 @@ class AttestationService(IAttestationService):
         """Build CBOR-encoded attestation request."""
         # Build the request map per NSM API spec
         attestation_params = {}
-        if user_data:
+        if user_data is not None:
             attestation_params["user_data"] = user_data
-        if nonce:
+        if nonce is not None:
             attestation_params["nonce"] = nonce
-        if public_key:
+        if public_key is not None:
             attestation_params["public_key"] = public_key
 
         request = {"Attestation": attestation_params}
@@ -177,12 +179,20 @@ class AttestationService(IAttestationService):
             Tuple of (success, attestation_data)
         """
         if not self._nsm_available:
-            logger.error("[ATTESTATION] Not running in Nitro Enclave - attestation not available")
-            return False, {
-                'error': 'NOT_IN_ENCLAVE',
-                'message': 'Attestation requires AWS Nitro Enclave. /dev/nsm not found.',
-                'is_real_enclave': False
-            }
+            if not ALLOW_LOCAL_ATTESTATION:
+                logger.error("[ATTESTATION] NSM not available and ALLOW_LOCAL_ATTESTATION is not enabled")
+                return False, {
+                    'error': 'NOT_IN_ENCLAVE',
+                    'message': 'Attestation requires AWS Nitro Enclave. /dev/nsm not found. '
+                               'Set ALLOW_LOCAL_ATTESTATION=true for local development only.',
+                    'is_real_enclave': False,
+                }
+            logger.warning("[ATTESTATION] NSM not available — using local attestation generator (ALLOW_LOCAL_ATTESTATION=true)")
+            return generate_local_attestation(
+                user_data=user_data,
+                nonce=nonce,
+                public_key=public_key,
+            )
 
         if self._nsm_fd is None:
             logger.error("[ATTESTATION] NSM device not open - attestation failed")
