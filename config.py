@@ -41,6 +41,7 @@ DEFAULT_KEY_SIZE = int(os.getenv('DEFAULT_KEY_SIZE', '2048'))
 ALLOWED_KEY_SIZES = [2048, 3072, 4096]
 
 # Feature flags
+ALLOW_LOCAL_ATTESTATION = os.getenv('ALLOW_LOCAL_ATTESTATION', 'false').lower() == 'true'
 ENABLE_KMS_ATTESTATION = os.getenv('ENABLE_KMS_ATTESTATION', 'true').lower() == 'true'
 ENABLE_SCRIPT_VALIDATION = os.getenv('ENABLE_SCRIPT_VALIDATION', 'true').lower() == 'true'
 ENABLE_RESOURCE_MONITORING = os.getenv('ENABLE_RESOURCE_MONITORING', 'false').lower() == 'true'
