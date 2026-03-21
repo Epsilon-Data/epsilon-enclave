@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.0](https://github.com/Epsilon-Data/epsilon-enclave/compare/v1.1.0...v1.2.0) (2026-03-21)
+
+
+### Features
+
+* **enclave:** add local attestation fallback with opt-in guard ([c844786](https://github.com/Epsilon-Data/epsilon-enclave/commit/c844786f92b8430cab9040d41308d6bb01d8c113))
+* **enclave:** add local attestation fallback with opt-in guard ([b714373](https://github.com/Epsilon-Data/epsilon-enclave/commit/b714373ca9bfe7a4eab182aec68eb3013d7c48bb))
+
 ## [1.1.0](https://github.com/Epsilon-Data/epsilon-enclave/compare/v1.0.0...v1.1.0) (2026-03-16)
 
 
