@@ -286,7 +286,8 @@ class AttestationService(IAttestationService):
         self,
         job_id: str,
         output: str,
-        execution_metadata: Dict[str, Any]
+        script_bytes: Optional[bytes] = None,
+        dataset_bytes: Optional[bytes] = None,
     ) -> Tuple[bool, Dict[str, Any]]:
         """
         Create an attestation for a specific execution.
@@ -294,13 +295,15 @@ class AttestationService(IAttestationService):
         This is what users receive as proof their code ran in the enclave.
         """
         try:
-            # Create user_data containing execution proof
+            # Create user_data containing per-execution proof (paper spec)
+            script_hash = hashlib.sha256(script_bytes).hexdigest() if script_bytes else ""
+            dataset_hash = hashlib.sha256(dataset_bytes).hexdigest() if dataset_bytes else ""
             proof_data = {
                 'job_id': job_id,
+                'script_hash': script_hash,
+                'dataset_hash': dataset_hash,
                 'output_hash': hashlib.sha256(output.encode()).hexdigest(),
-                'output_length': len(output),
                 'timestamp': int(time.time()),
-                'metadata': execution_metadata
             }
 
             proof_bytes = json.dumps(proof_data, sort_keys=True).encode()

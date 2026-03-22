@@ -167,12 +167,8 @@ class RequestHandlerImpl(IRequestHandler):
                 attestation_success, attestation_result = self.attestation_service.create_execution_attestation(
                     job_id=session_id,
                     output=output,
-                    execution_metadata={
-                        'encrypted_zip_size': len(encrypted_data),
-                        'encrypted_csv_size': len(encrypted_csv) if encrypted_csv else 0,
-                        'decrypted_zip_size': len(decrypted_zip),
-                        'decrypted_csv_size': len(decrypted_csv) if decrypted_csv else 0
-                    }
+                    script_bytes=decrypted_zip,
+                    dataset_bytes=decrypted_csv,
                 )
                 timing['attestation_generation_ms'] = round((time.time() - t0) * 1000, 2)
 
