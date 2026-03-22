@@ -37,7 +37,8 @@ class IAttestationService(ABC):
         self,
         job_id: str,
         output: str,
-        execution_metadata: Dict[str, Any]
+        script_bytes: Optional[bytes] = None,
+        dataset_bytes: Optional[bytes] = None,
     ) -> Tuple[bool, Dict[str, Any]]:
         """
         Create an attestation for a specific execution.
@@ -45,7 +46,8 @@ class IAttestationService(ABC):
         Args:
             job_id: Job or session identifier
             output: Execution output to attest
-            execution_metadata: Metadata about the execution
+            script_bytes: Raw code bundle bytes (for script_hash)
+            dataset_bytes: Raw dataset bytes (for dataset_hash)
 
         Returns:
             Tuple of (success, attestation_result or error_dict)
