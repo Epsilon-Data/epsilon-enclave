@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0](https://github.com/Epsilon-Data/epsilon-enclave/compare/v1.2.0...v1.3.0) (2026-03-22)
+
+
+### Features
+
+* add script_hash and dataset_hash to attestation user_data ([#8](https://github.com/Epsilon-Data/epsilon-enclave/issues/8)) ([ec5cafc](https://github.com/Epsilon-Data/epsilon-enclave/commit/ec5cafc354af83195d46d9d95675dea8bafad4a0))
+
 ## [1.2.0](https://github.com/Epsilon-Data/epsilon-enclave/compare/v1.1.0...v1.2.0) (2026-03-21)
 
 
