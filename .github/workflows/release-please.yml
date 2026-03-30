@@ -20,4 +20,4 @@ jobs:
         id: release
         with:
           release-type: simple
-          token: ${{ secrets.GHCR_PAT }}
+          token: ${{ secrets.GITHUB_TOKEN }}
