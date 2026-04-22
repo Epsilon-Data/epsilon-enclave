@@ -1,6 +1,6 @@
 # Epsilon Enclave
 
-[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/Epsilon-Data/epsilon-enclave)](https://github.com/Epsilon-Data/epsilon-enclave/releases/latest)
 [![GHCR](https://img.shields.io/badge/GHCR-epsilon--enclave-blue?logo=github)](https://github.com/orgs/Epsilon-Data/packages/container/package/epsilon-enclave)
 
@@ -207,4 +207,4 @@ See [SECURITY.md](SECURITY.md) for reporting vulnerabilities.
 
 ## License
 
-[Apache License 2.0](LICENSE)
+[MIT License](LICENSE)
