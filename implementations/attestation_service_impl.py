@@ -288,11 +288,23 @@ class AttestationService(IAttestationService):
         output: str,
         script_bytes: Optional[bytes] = None,
         dataset_bytes: Optional[bytes] = None,
+        external_nonce: Optional[bytes] = None,
+        context_hash: Optional[str] = None,
     ) -> Tuple[bool, Dict[str, Any]]:
         """
         Create an attestation for a specific execution.
 
         This is what users receive as proof their code ran in the enclave.
+
+        Args:
+            job_id: Mutually committed job identifier H(r || o)
+            output: Execution output string
+            script_bytes: Raw script bytes for script_hash
+            dataset_bytes: Raw dataset bytes for dataset_hash
+            external_nonce: Researcher-supplied nonce = H(STH_current).
+                           If None, falls back to random nonce (non-compliant).
+            context_hash: H(job_id || commit_sha || archetype_id || dataset_id).
+                         Binds ATL entry metadata to the hardware-signed attestation.
         """
         try:
             # Create user_data containing per-execution proof (paper spec)
@@ -306,10 +318,20 @@ class AttestationService(IAttestationService):
                 'timestamp': int(time.time()),
             }
 
-            proof_bytes = json.dumps(proof_data, sort_keys=True).encode()
+            # Include context_hash if provided (binds wrapper metadata)
+            if context_hash:
+                proof_data['context_hash'] = context_hash
 
-            # Generate random nonce for replay protection
-            nonce = os.urandom(32)
+            # Use external nonce (H(STH)) if provided, otherwise random (non-compliant)
+            if external_nonce:
+                nonce = external_nonce
+                proof_data['nonce'] = base64.b64encode(nonce).decode()
+            else:
+                nonce = os.urandom(32)
+                proof_data['nonce'] = base64.b64encode(nonce).decode()
+                proof_data['nonce_source'] = 'random'  # marks as non-compliant
+
+            proof_bytes = json.dumps(proof_data, sort_keys=True).encode()
 
             # Generate attestation with proof data
             success, attestation = self.generate_attestation(
@@ -324,7 +346,9 @@ class AttestationService(IAttestationService):
                         'job_id': job_id,
                         'output_hash': proof_data['output_hash'],
                         'timestamp': proof_data['timestamp'],
-                        'nonce': base64.b64encode(nonce).decode()
+                        'nonce': base64.b64encode(nonce).decode(),
+                        'nonce_source': 'sth' if external_nonce else 'random',
+                        'context_hash': context_hash,
                     },
                     'verification_guide': {
                         'step_1': 'Download AWS Nitro root certificate from aws_root_cert_url',
@@ -334,6 +358,8 @@ class AttestationService(IAttestationService):
                         'step_5': 'Verify COSE_Sign1 signature',
                         'step_6': 'Extract PCR0 and compare with published enclave image hash',
                         'step_7': 'Extract user_data and verify output_hash matches SHA256(output)',
+                        'step_8': 'Verify nonce matches H(STH_current) for freshness',
+                        'step_9': 'Verify context_hash matches H(job_id||commit_sha||archetype_id||dataset_id)',
                         'conclusion': 'If all steps pass, the output was generated inside the verified enclave'
                     }
                 }
