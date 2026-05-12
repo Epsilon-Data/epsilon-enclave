@@ -162,6 +162,16 @@ class RequestHandlerImpl(IRequestHandler):
             if success:
                 logger.info(f"[EXECUTE] Execution successful ({timing['script_execution_ms']}ms)")
 
+                # ATL binding (paper §3.5): if the coordinator went through
+                # commitment-then-dispatch it supplied atl_nonce (= H(STH))
+                # and atl_context_hash here. Both ride as hex strings on the
+                # VSock RPC. Forwarded to the attestation service so they
+                # become part of the hardware-signed user_data — that is what
+                # makes a logged Commitment+HA pair cryptographically bound.
+                atl_nonce_hex = request.get('atl_nonce')
+                external_nonce = bytes.fromhex(atl_nonce_hex) if atl_nonce_hex else None
+                context_hash = request.get('atl_context_hash')
+
                 # Generate attestation proof for user
                 t0 = time.time()
                 attestation_success, attestation_result = self.attestation_service.create_execution_attestation(
@@ -169,6 +179,8 @@ class RequestHandlerImpl(IRequestHandler):
                     output=output,
                     script_bytes=decrypted_zip,
                     dataset_bytes=decrypted_csv,
+                    external_nonce=external_nonce,
+                    context_hash=context_hash,
                 )
                 timing['attestation_generation_ms'] = round((time.time() - t0) * 1000, 2)
 
