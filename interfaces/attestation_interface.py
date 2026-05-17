@@ -39,6 +39,8 @@ class IAttestationService(ABC):
         output: str,
         script_bytes: Optional[bytes] = None,
         dataset_bytes: Optional[bytes] = None,
+        external_nonce: Optional[bytes] = None,
+        context_hash: Optional[str] = None,
     ) -> Tuple[bool, Dict[str, Any]]:
         """
         Create an attestation for a specific execution.
@@ -48,6 +50,8 @@ class IAttestationService(ABC):
             output: Execution output to attest
             script_bytes: Raw code bundle bytes (for script_hash)
             dataset_bytes: Raw dataset bytes (for dataset_hash)
+            external_nonce: Researcher-supplied nonce = H(STH_current)
+            context_hash: H(job_id || commit_sha || archetype_id || dataset_id)
 
         Returns:
             Tuple of (success, attestation_result or error_dict)
