@@ -296,11 +296,14 @@ class RequestHandlerImpl(IRequestHandler):
         - Hash the received public key and compare with user_data in attestation
         - Trust the public key for encrypting query results
         """
+        t_total = time.time()
+        timings: Dict[str, float] = {}
         try:
             job_id = request['job_id']
             key_size = request.get('key_size', 2048)
 
-            # Step 1: Generate RSA keypair
+            # Stage 1: Generate RSA keypair
+            t0 = time.time()
             success, session_id = self.keypair_manager.generate_keypair(job_id, key_size)
             if not success:
                 return self._error_response(f"Keypair generation failed: {session_id}")
@@ -308,25 +311,31 @@ class RequestHandlerImpl(IRequestHandler):
             public_key = self.keypair_manager.get_public_key(session_id)
             if not public_key:
                 return self._error_response("Failed to retrieve generated public key")
+            timings['keypair_generation_ms'] = round((time.time() - t0) * 1000, 2)
 
             logger.info(f"[PROXY-ATTEST] Generated keypair for job {job_id}, session {session_id}")
 
-            # Step 2: Create user_data containing the public key hash
-            # This binds the public key to the attestation document
+            # Stage 2: Build user_data (public key hash) and prepare nonce.
+            # The hash binds the public key to the attestation document.
+            t0 = time.time()
             public_key_hash = hashlib.sha256(public_key.encode()).digest()
-
-            # Step 3: Generate attestation with public key hash as user_data
             nonce = request.get('nonce')
             if nonce:
                 nonce = nonce.encode() if isinstance(nonce, str) else nonce
+            timings['user_data_build_ms'] = round((time.time() - t0) * 1000, 2)
 
+            # Stage 3: Generate attestation (NSM call when real enclave)
+            t0 = time.time()
             success_attest, attestation = self.attestation_service.generate_attestation(
                 user_data=public_key_hash,
                 nonce=nonce
             )
+            timings['nsm_attestation_ms'] = round((time.time() - t0) * 1000, 2)
 
+            timings['total_ms'] = round((time.time() - t_total) * 1000, 2)
             logger.info(f"[PROXY-ATTEST] Attestation generated: success={success_attest}, "
                         f"real_enclave={self.attestation_service.is_real_enclave}")
+            logger.info(f"[PROXY-ATTEST-TIMING] job={job_id} {timings}")
 
             return {
                 'success': True,
@@ -338,6 +347,7 @@ class RequestHandlerImpl(IRequestHandler):
                 'attestation': attestation if success_attest else None,
                 'attestation_available': success_attest,
                 'is_real_enclave': self.attestation_service.is_real_enclave,
+                'timings': timings,
                 'verification_steps': [
                     '1. Base64-decode the attestation document',
                     '2. Parse CBOR and verify COSE_Sign1 signature against AWS Nitro root cert',
