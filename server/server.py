@@ -18,24 +18,34 @@ MAX_HEADER_VALUE = MAX_REQUEST_SIZE
 class EnclaveServer:
     """VSock server for handling enclave requests using interfaces"""
 
-    def __init__(self, kms_attestation=None):
+    def __init__(self, kms_attestation=None, backend: Optional[str] = None):
         self.socket: Optional[socket.socket] = None
-        self.request_handler = EnclaveServiceFactory.create_enclave_services(kms_attestation)
+        self.request_handler = EnclaveServiceFactory.create_enclave_services(
+            kms_attestation, backend=backend
+        )
+
+    def _bind_listening_socket(self) -> socket.socket:
+        """Create, bind and listen on the transport socket.
+
+        Template method: the base server listens on VSock; transport-specific
+        subclasses (e.g. TcpEnclaveServer for TDX VMs) override only this.
+        """
+        sock = socket.socket(socket.AF_VSOCK, socket.SOCK_STREAM)
+        sock.bind((socket.VMADDR_CID_ANY, VSOCK_PORT))
+        sock.listen(5)
+        logger.info(f"[LISTENING] Listening on vsock port {VSOCK_PORT}")
+        return sock
 
     def start(self):
-        """Start the vsock server and listen for connections"""
+        """Accept connections and dispatch each one in its own thread."""
         try:
-            self.socket = socket.socket(socket.AF_VSOCK, socket.SOCK_STREAM)
-            self.socket.bind((socket.VMADDR_CID_ANY, VSOCK_PORT))
-            self.socket.listen(5)
-
-            logger.info(f"[SERVER] Enclave server started")
-            logger.info(f"[LISTENING] Listening on vsock port {VSOCK_PORT}")
+            self.socket = self._bind_listening_socket()
+            logger.info("[SERVER] Enclave server started")
 
             while True:
                 try:
                     client_socket, client_addr = self.socket.accept()
-                    logger.info(f"[CONNECTION] Connection from CID: {client_addr}")
+                    logger.info(f"[CONNECTION] Connection from: {client_addr}")
                     t = threading.Thread(
                         target=self._handle_client_safe,
                         args=(client_socket,),

@@ -7,6 +7,7 @@ from implementations.execute_service_impl import ExecuteServiceImpl
 from implementations.keypair_manager_impl import KeyPairManagerImpl
 from implementations.kms_attestation_impl import KMSAttestationService
 from implementations.attestation_service_impl import AttestationService
+from implementations.tdx_attestation_service_impl import TdxAttestationService
 
 __all__ = [
     'RequestHandlerImpl',
@@ -15,4 +16,5 @@ __all__ = [
     'KeyPairManagerImpl',
     'KMSAttestationService',
     'AttestationService',
+    'TdxAttestationService',
 ]
