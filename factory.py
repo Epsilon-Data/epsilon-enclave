@@ -2,6 +2,8 @@
 Factory for creating and wiring enclave service implementations
 """
 import logging
+import os
+from typing import Optional
 
 from interfaces import (
     IRequestHandler,
@@ -17,9 +19,21 @@ from implementations import (
     ExecuteServiceImpl,
     KeyPairManagerImpl,
     AttestationService,
+    TdxAttestationService,
 )
 
 logger = logging.getLogger(__name__)
+
+# Supported TEE attestation backends, keyed by the ENCLAVE_BACKEND value.
+NITRO_BACKEND = "nitro"
+TDX_BACKEND = "tdx"
+DEFAULT_ATTESTATION_BACKEND = NITRO_BACKEND
+
+# Registry: backend name -> attestation service implementation.
+_ATTESTATION_BACKENDS = {
+    NITRO_BACKEND: AttestationService,
+    TDX_BACKEND: TdxAttestationService,
+}
 
 
 class EnclaveServiceFactory:
@@ -28,15 +42,20 @@ class EnclaveServiceFactory:
     """
 
     @staticmethod
-    def create_enclave_services(kms_attestation: IKMSAttestationService = None) -> IRequestHandler:
+    def create_enclave_services(
+        kms_attestation: IKMSAttestationService = None,
+        backend: Optional[str] = None,
+    ) -> IRequestHandler:
         """
-        Create a fully wired enclave service stack
+        Create a fully wired enclave service stack.
 
         Args:
-            kms_attestation: Optional KMS attestation service
+            kms_attestation: Optional KMS attestation service.
+            backend: TEE attestation backend ('nitro' or 'tdx'). When None,
+                falls back to the ENCLAVE_BACKEND env var, then to Nitro.
 
         Returns:
-            Configured request handler with all dependencies
+            Configured request handler with all dependencies.
         """
         logger.info("[FACTORY] Creating enclave service stack...")
 
@@ -44,7 +63,7 @@ class EnclaveServiceFactory:
         keypair_manager = KeyPairManagerImpl()
         decrypt_service = DecryptServiceImpl(keypair_manager)
         execute_service = ExecuteServiceImpl(decrypt_service)
-        attestation_service = AttestationService()
+        attestation_service = EnclaveServiceFactory.create_attestation_service(backend)
 
         # Create request handler with all dependencies
         request_handler = RequestHandlerImpl(
@@ -76,9 +95,26 @@ class EnclaveServiceFactory:
         return ExecuteServiceImpl(decrypt_service)
 
     @staticmethod
-    def create_attestation_service() -> IAttestationService:
-        """Create attestation service"""
-        return AttestationService()
+    def create_attestation_service(backend: Optional[str] = None) -> IAttestationService:
+        """Create the attestation service for the configured TEE backend.
+
+        Args:
+            backend: 'nitro' (AWS Nitro NSM/COSE) or 'tdx' (Intel TDX quote).
+                When None, falls back to the ENCLAVE_BACKEND env var, then Nitro.
+
+        Raises:
+            ValueError: if the resolved backend is not registered.
+        """
+        resolved = (backend or os.getenv("ENCLAVE_BACKEND", DEFAULT_ATTESTATION_BACKEND)).strip().lower()
+        try:
+            service_cls = _ATTESTATION_BACKENDS[resolved]
+        except KeyError:
+            raise ValueError(
+                f"Unknown attestation backend {resolved!r}; "
+                f"expected one of {sorted(_ATTESTATION_BACKENDS)}"
+            )
+        logger.info(f"[FACTORY] Attestation backend: {resolved}")
+        return service_cls()
 
     @staticmethod
     def create_request_handler(

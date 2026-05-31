@@ -8,7 +8,7 @@ import os
 VSOCK_PORT = int(os.getenv('VSOCK_PORT', '5005'))
 
 # Request limits
-MAX_REQUEST_SIZE = int(os.getenv('MAX_REQUEST_SIZE', '10485760'))  # 10MB
+MAX_REQUEST_SIZE = int(os.getenv('MAX_REQUEST_SIZE', str(200 * 1024 * 1024)))  # 200MB
 
 # Logging configuration
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
