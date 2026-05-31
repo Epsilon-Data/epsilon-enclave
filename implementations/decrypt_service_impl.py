@@ -2,10 +2,11 @@
 Decrypt Service Implementation
 Concrete implementation of IDecryptService interface for RSA hybrid decryption
 
-Encryption Format (matching coordinator):
-- Combined base64 data: [encrypted_key (256 bytes)] + [iv (16 bytes)] + [ciphertext]
+Encryption Format (matching proxy/coordinator):
+- Combined base64 data: [encrypted_key (256 bytes)] + [nonce (12 bytes)] + [ciphertext‖tag]
 - RSA-OAEP with SHA-256 for key encryption
-- AES-256-CBC with PKCS7 padding for data encryption
+- AES-256-GCM (authenticated) for data encryption; the 16-byte tag is verified on decrypt
+- Legacy methods below retain AES-256-CBC with PKCS7 padding for backward compatibility
 """
 import base64
 import hashlib
@@ -21,6 +22,8 @@ from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives import padding as sym_padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.exceptions import InvalidTag
 
 from interfaces import IDecryptService
 
@@ -28,8 +31,9 @@ logger = logging.getLogger(__name__)
 
 # Encryption constants (must match coordinator)
 AES_KEY_SIZE = 32  # 256 bits
-IV_SIZE = 16  # 128 bits for AES-CBC
+IV_SIZE = 16  # 128 bits for AES-CBC (legacy methods)
 AES_BLOCK_SIZE = 128  # bits
+GCM_NONCE_SIZE = 12  # 96 bits, standard for AES-GCM
 
 
 class DecryptServiceImpl(IDecryptService):
@@ -65,13 +69,15 @@ class DecryptServiceImpl(IDecryptService):
         session_id: str
     ) -> Tuple[bool, bytes]:
         """
-        Decrypt data using RSA hybrid encryption (RSA-OAEP + AES-256-CBC).
+        Decrypt data using RSA hybrid encryption (RSA-OAEP + AES-256-GCM).
 
-        This matches the coordinator's encryption format:
+        This matches the proxy's encryption format:
         - Base64 encoded combined data
-        - Format: [encrypted_key (RSA key_size/8 bytes)] + [iv (16 bytes)] + [ciphertext]
+        - Format: [encrypted_key (RSA key_size/8 bytes)] + [nonce (12 bytes)] + [ciphertext‖tag]
         - RSA-OAEP with SHA-256 for key encryption
-        - AES-256-CBC with PKCS7 padding for data encryption
+        - AES-256-GCM for data encryption; the 16-byte authentication tag is
+          appended to the ciphertext and verified here. A tampered or corrupt
+          payload fails tag verification (InvalidTag) and is rejected.
         """
         try:
             logger.info(f"[DECRYPT] Starting combined RSA hybrid decryption for session {session_id}")
@@ -92,13 +98,13 @@ class DecryptServiceImpl(IDecryptService):
             # Decode the combined base64 data
             combined = base64.b64decode(combined_encrypted_data)
 
-            # Parse the combined format: [encrypted_key][iv][ciphertext]
+            # Parse the combined format: [encrypted_key][nonce][ciphertext‖tag]
             rsa_key_bytes = private_key.key_size // 8  # 256 bytes for RSA-2048
             encrypted_key = combined[:rsa_key_bytes]
-            iv = combined[rsa_key_bytes:rsa_key_bytes + IV_SIZE]
-            ciphertext = combined[rsa_key_bytes + IV_SIZE:]
+            nonce = combined[rsa_key_bytes:rsa_key_bytes + GCM_NONCE_SIZE]
+            ciphertext = combined[rsa_key_bytes + GCM_NONCE_SIZE:]  # includes 16-byte GCM tag
 
-            logger.info(f"[DECRYPT] Parsed combined data: key={len(encrypted_key)}B, iv={len(iv)}B, ciphertext={len(ciphertext)}B")
+            logger.info(f"[DECRYPT] Parsed combined data: key={len(encrypted_key)}B, nonce={len(nonce)}B, ciphertext+tag={len(ciphertext)}B")
             logger.info(f"[DECRYPT] Step 1: Decrypting AES key with RSA-{private_key.key_size} private key")
 
             # Step 1: Decrypt AES key with RSA-OAEP
@@ -115,23 +121,24 @@ class DecryptServiceImpl(IDecryptService):
 
             logger.info(f"[DECRYPT] Decrypted AES-256 key ({len(aes_key)} bytes) in {rsa_ms}ms")
 
-            # Step 2: Decrypt data with AES-256-CBC
-            logger.info(f"[DECRYPT] Step 2: Decrypting data with AES-256-CBC")
+            # Step 2: Decrypt AND authenticate data with AES-256-GCM.
+            # AESGCM.decrypt verifies the appended 16-byte tag and raises
+            # InvalidTag if the payload was modified in transit.
+            logger.info(f"[DECRYPT] Step 2: Decrypting + verifying data with AES-256-GCM")
             t0 = time.time()
-            cipher = Cipher(algorithms.AES(aes_key), modes.CBC(iv))
-            decryptor = cipher.decryptor()
-            padded_data = decryptor.update(ciphertext) + decryptor.finalize()
-
-            # Step 3: Remove PKCS7 padding
-            unpadder = sym_padding.PKCS7(AES_BLOCK_SIZE).unpadder()
-            decrypted_data = unpadder.update(padded_data) + unpadder.finalize()
+            aesgcm = AESGCM(aes_key)
+            decrypted_data = aesgcm.decrypt(nonce, ciphertext, None)
             aes_ms = round((time.time() - t0) * 1000, 2)
 
-            logger.info(f"[DECRYPT] Decrypted data ({len(ciphertext)} -> {len(decrypted_data)} bytes) in {aes_ms}ms")
-            logger.info(f"[TIMING] rsa_oaep={rsa_ms}ms aes_cbc={aes_ms}ms total={round(rsa_ms + aes_ms, 2)}ms")
+            logger.info(f"[DECRYPT] Decrypted+verified data ({len(ciphertext)} -> {len(decrypted_data)} bytes) in {aes_ms}ms")
+            logger.info(f"[TIMING] rsa_oaep={rsa_ms}ms aes_gcm={aes_ms}ms total={round(rsa_ms + aes_ms, 2)}ms")
 
             return True, decrypted_data
 
+        except InvalidTag:
+            error_msg = "AES-GCM authentication failed: payload tampered or corrupt"
+            logger.error(f"[DECRYPT] {error_msg} (session {session_id})")
+            return False, error_msg.encode()
         except Exception as e:
             logger.error(f"[DECRYPT] RSA hybrid decryption failed: {str(e)}")
             logger.error(f"[DECRYPT] Traceback: {traceback.format_exc()}")
