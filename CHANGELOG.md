@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.4.0](https://github.com/Epsilon-Data/epsilon-enclave/compare/v1.3.0...v1.4.0) (2026-05-31)
+
+
+### Features
+
+* AES-256-GCM payload decryption with tag verification ([#14](https://github.com/Epsilon-Data/epsilon-enclave/issues/14)) ([278f801](https://github.com/Epsilon-Data/epsilon-enclave/commit/278f80101afeb6cdbe3e88444958b2eed5de0572))
+* ATL binding in attestation user_data ([#12](https://github.com/Epsilon-Data/epsilon-enclave/issues/12)) ([2d4a4d0](https://github.com/Epsilon-Data/epsilon-enclave/commit/2d4a4d037c47f6aa6fb82d31e785121c24c3b999))
+* **handler:** decompose proxy attestation into sub-stage timings ([#11](https://github.com/Epsilon-Data/epsilon-enclave/issues/11)) ([63821d7](https://github.com/Epsilon-Data/epsilon-enclave/commit/63821d7699c1d2894ced050ccbc07941a98fd064))
+
+
+### Bug Fixes
+
+* raise enclave MAX_REQUEST_SIZE to 200MB for large VSock payloads ([#13](https://github.com/Epsilon-Data/epsilon-enclave/issues/13)) ([1291449](https://github.com/Epsilon-Data/epsilon-enclave/commit/12914499eb464e0c09b9f0f8855d7f915da3b560))
+
 ## [1.3.0](https://github.com/Epsilon-Data/epsilon-enclave/compare/v1.2.0...v1.3.0) (2026-03-22)
 
 
