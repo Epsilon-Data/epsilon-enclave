@@ -208,3 +208,12 @@ See [SECURITY.md](SECURITY.md) for reporting vulnerabilities.
 ## License
 
 [Apache License 2.0](LICENSE)
+
+## Secret scanning
+
+CI runs [gitleaks](https://github.com/gitleaks/gitleaks) on every PR and blocks commits that add secrets. Run the same check locally before each commit:
+
+```bash
+brew install gitleaks            # or download a release binary
+git config core.hooksPath .githooks
+```
