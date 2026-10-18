@@ -13,6 +13,7 @@ from typing import Dict, Any, Optional
 
 from interfaces import IRequestHandler, IDecryptService, IExecuteService, IKeyPairManager
 from interfaces.attestation_interface import IAttestationService
+from implementations.output_files import build_files_manifest, files_manifest_sha256
 
 logger = logging.getLogger(__name__)
 
@@ -151,7 +152,7 @@ class RequestHandlerImpl(IRequestHandler):
 
             # Step 3: Execute the decrypted bundle with optional CSV data
             t0 = time.time()
-            success, output = self.execute_service.execute_bundle(
+            success, output, files = self.execute_service.execute_bundle(
                 decrypted_zip, session_id, csv_data=decrypted_csv
             )
             timing['script_execution_ms'] = round((time.time() - t0) * 1000, 2)
@@ -172,6 +173,9 @@ class RequestHandlerImpl(IRequestHandler):
                 external_nonce = bytes.fromhex(atl_nonce_hex) if atl_nonce_hex else None
                 context_hash = request.get('atl_context_hash')
 
+                # Output files: their manifest hash is bound into the attestation
+                manifest_sha256 = files_manifest_sha256(build_files_manifest(files))
+
                 # Generate attestation proof for user
                 t0 = time.time()
                 attestation_success, attestation_result = self.attestation_service.create_execution_attestation(
@@ -181,6 +185,7 @@ class RequestHandlerImpl(IRequestHandler):
                     dataset_bytes=decrypted_csv,
                     external_nonce=external_nonce,
                     context_hash=context_hash,
+                    files_manifest_sha256=manifest_sha256,
                 )
                 timing['attestation_generation_ms'] = round((time.time() - t0) * 1000, 2)
 
@@ -192,6 +197,17 @@ class RequestHandlerImpl(IRequestHandler):
                 response = {
                     'success': True,
                     'output': output,
+                    'files': [
+                        {
+                            'name': f['name'],
+                            'size': f['size'],
+                            'sha256': f['sha256'],
+                            'type': f['type'],
+                            'content_b64': base64.b64encode(f['content']).decode(),
+                        }
+                        for f in files
+                    ],
+                    'files_manifest_sha256': manifest_sha256,
                     'session_id': session_id,
                     'enclave_proof': {
                         'ran_in_enclave': self.attestation_service.is_real_enclave,

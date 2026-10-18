@@ -290,6 +290,7 @@ class AttestationService(IAttestationService):
         dataset_bytes: Optional[bytes] = None,
         external_nonce: Optional[bytes] = None,
         context_hash: Optional[str] = None,
+        files_manifest_sha256: Optional[str] = None,
     ) -> Tuple[bool, Dict[str, Any]]:
         """
         Create an attestation for a specific execution.
@@ -305,6 +306,8 @@ class AttestationService(IAttestationService):
                            If None, falls back to random nonce (non-compliant).
             context_hash: H(job_id || commit_sha || archetype_id || dataset_id).
                          Binds ATL entry metadata to the hardware-signed attestation.
+            files_manifest_sha256: SHA-256 of the canonical output-files manifest.
+                         Binds the output files to the hardware-signed attestation.
         """
         try:
             # Create user_data containing per-execution proof (paper spec)
@@ -321,6 +324,10 @@ class AttestationService(IAttestationService):
             # Include context_hash if provided (binds wrapper metadata)
             if context_hash:
                 proof_data['context_hash'] = context_hash
+
+            # Include the output-files manifest hash (sha256 of [] when no files)
+            if files_manifest_sha256 is not None:
+                proof_data['files_manifest_sha256'] = files_manifest_sha256
 
             # Use external nonce (H(STH)) if provided, otherwise random (non-compliant)
             if external_nonce:
@@ -349,6 +356,7 @@ class AttestationService(IAttestationService):
                         'nonce': base64.b64encode(nonce).decode(),
                         'nonce_source': 'sth' if external_nonce else 'random',
                         'context_hash': context_hash,
+                        'files_manifest_sha256': files_manifest_sha256,
                     },
                     'verification_guide': {
                         'step_1': 'Download AWS Nitro root certificate from aws_root_cert_url',
@@ -360,6 +368,7 @@ class AttestationService(IAttestationService):
                         'step_7': 'Extract user_data and verify output_hash matches SHA256(output)',
                         'step_8': 'Verify nonce matches H(STH_current) for freshness',
                         'step_9': 'Verify context_hash matches H(job_id||commit_sha||archetype_id||dataset_id)',
+                        'step_10': 'Verify files_manifest_sha256 matches SHA256 of the canonical manifest of the output files',
                         'conclusion': 'If all steps pass, the output was generated inside the verified enclave'
                     }
                 }

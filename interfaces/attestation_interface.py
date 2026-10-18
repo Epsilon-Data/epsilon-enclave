@@ -41,6 +41,7 @@ class IAttestationService(ABC):
         dataset_bytes: Optional[bytes] = None,
         external_nonce: Optional[bytes] = None,
         context_hash: Optional[str] = None,
+        files_manifest_sha256: Optional[str] = None,
     ) -> Tuple[bool, Dict[str, Any]]:
         """
         Create an attestation for a specific execution.
@@ -52,6 +53,7 @@ class IAttestationService(ABC):
             dataset_bytes: Raw dataset bytes (for dataset_hash)
             external_nonce: Researcher-supplied nonce = H(STH_current)
             context_hash: H(job_id || commit_sha || archetype_id || dataset_id)
+            files_manifest_sha256: SHA-256 of the canonical output-files manifest
 
         Returns:
             Tuple of (success, attestation_result or error_dict)
