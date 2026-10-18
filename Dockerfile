@@ -162,8 +162,11 @@ RUN chmod +x /app/kmstool_enclave_cli && ldconfig
 COPY requirements.txt /app/
 RUN pip3 install --no-cache-dir -r requirements.txt
 
-# Plotting for researcher scripts (output files); 3.7.5 is the last matplotlib for Python 3.8
-RUN pip3 install --no-cache-dir numpy==1.24.4 matplotlib==3.7.5
+# Analysis libraries for researcher scripts (numpy, pandas, matplotlib): fully
+# pinned closure, wheels only, no resolver, so the EIF PCRs are reproducible
+COPY requirements-analysis.txt /app/
+RUN pip3 install --no-cache-dir --no-deps --only-binary=:all: -r requirements-analysis.txt && \
+    pip3 check
 
 # Copy the enclave application modules
 COPY *.py /app/
