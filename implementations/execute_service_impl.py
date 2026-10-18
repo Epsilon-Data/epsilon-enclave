@@ -18,7 +18,11 @@ import zipfile
 from typing import Tuple, Dict, Any, Optional, List
 
 from interfaces import IExecuteService
-from config import EXECUTION_TIMEOUT, MAX_MEMORY_MB, MAX_OUTPUT_SIZE_MB, MAX_ZIP_ENTRIES, MAX_ZIP_TOTAL_SIZE
+from config import (
+    EXECUTION_TIMEOUT, MAX_MEMORY_MB, MAX_OUTPUT_SIZE_MB, MAX_ZIP_ENTRIES, MAX_ZIP_TOTAL_SIZE,
+    MAX_OUTPUT_FILES, MAX_OUTPUT_FILES_MB,
+)
+from implementations.output_files import collect_output_files, OutputFilesError, REJECTED_PREFIX
 
 logger = logging.getLogger(__name__)
 
@@ -122,7 +126,7 @@ class ExecuteServiceImpl(IExecuteService):
         session_id: str,
         script_path: Optional[str] = None,
         csv_data: Optional[bytes] = None
-    ) -> Tuple[bool, str]:
+    ) -> Tuple[bool, str, List[Dict[str, Any]]]:
         """
         Execute a script from a decrypted bundle
 
@@ -131,6 +135,11 @@ class ExecuteServiceImpl(IExecuteService):
             session_id: Session identifier for tracking
             script_path: Optional path to script within bundle
             csv_data: Optional decrypted CSV data to inject into generated/data.csv
+
+        Returns:
+            (success, output or error message, output files). Output files are the
+            entries collected from EPSILON_OUTPUT_DIR (see output_files.py); always
+            [] on failure.
         """
         execution_id = f"bundle_{session_id}_{int(time.time())}"
 
@@ -145,7 +154,7 @@ class ExecuteServiceImpl(IExecuteService):
                 t_extract = time.time()
                 extraction_error = self._safe_extract_zip(bundle_data, temp_dir)
                 if extraction_error:
-                    return False, extraction_error
+                    return False, extraction_error, []
                 extract_ms = round((time.time() - t_extract) * 1000, 2)
 
                 logger.info(f"[EXECUTE-BUNDLE] Extracted bundle to {temp_dir} ({extract_ms}ms)")
@@ -161,7 +170,7 @@ class ExecuteServiceImpl(IExecuteService):
                 # Find script file
                 target_script = self._find_script(temp_dir, script_path)
                 if target_script is None:
-                    return False, f"Script not found: {script_path or 'no .py file in bundle'}"
+                    return False, f"Script not found: {script_path or 'no .py file in bundle'}", []
 
                 # Validate script content
                 with open(target_script, 'r') as f:
@@ -169,13 +178,23 @@ class ExecuteServiceImpl(IExecuteService):
 
                 is_valid, validation_msg = self.validate_script(script_content)
                 if not is_valid:
-                    return False, f"Script validation failed: {validation_msg}"
+                    return False, f"Script validation failed: {validation_msg}", []
 
                 # Process any CSV files in the bundle (for cases without injected CSV)
                 if not csv_data:
                     success, csv_info = self._process_bundle_csv_files(temp_dir, session_id)
                     if not success:
                         logger.warning(f"[EXECUTE-BUNDLE] CSV processing warning: {csv_info}")
+
+                # Scripts write files to EPSILON_OUTPUT_DIR; collected after a successful run
+                output_dir = os.path.join(temp_dir, 'outputs')
+                os.makedirs(output_dir, exist_ok=True)
+                mpl_config_dir = os.path.join(temp_dir, '.mplconfig')
+                os.makedirs(mpl_config_dir, exist_ok=True)
+                env = dict(os.environ)
+                env['EPSILON_OUTPUT_DIR'] = output_dir
+                env['MPLBACKEND'] = 'Agg'
+                env['MPLCONFIGDIR'] = mpl_config_dir
 
                 # Execute script with cwd set to bundle dir (no os.chdir)
                 self._start_execution_monitoring(execution_id, session_id)
@@ -187,7 +206,8 @@ class ExecuteServiceImpl(IExecuteService):
                         capture_output=True,
                         text=True,
                         timeout=self._execution_limits['max_execution_time_seconds'],
-                        cwd=temp_dir
+                        cwd=temp_dir,
+                        env=env
                     )
                     run_ms = round((time.time() - t_run) * 1000, 2)
 
@@ -197,22 +217,30 @@ class ExecuteServiceImpl(IExecuteService):
                         output = result.stdout
                         if result.stderr:
                             output += f"\n--- STDERR ---\n{result.stderr}"
-                        return True, output
+                        try:
+                            files = collect_output_files(
+                                output_dir, MAX_OUTPUT_FILES, MAX_OUTPUT_FILES_MB * 1024 * 1024
+                            )
+                        except (OutputFilesError, OSError) as e:
+                            logger.error(f"[EXECUTE-BUNDLE] Output files rejected for {execution_id}: {e}")
+                            return False, f"{REJECTED_PREFIX}{e}", []
+                        logger.info(f"[EXECUTE-BUNDLE] Collected {len(files)} output file(s)")
+                        return True, output, files
                     else:
                         logger.error(f"[EXECUTE-BUNDLE] Bundle execution {execution_id} failed")
                         logger.error(f"[EXECUTE-BUNDLE] STDERR: {result.stderr}")
-                        return False, f"Bundle execution failed:\nSTDOUT: {result.stdout}\nSTDERR: {result.stderr}"
+                        return False, f"Bundle execution failed:\nSTDOUT: {result.stdout}\nSTDERR: {result.stderr}", []
                 finally:
                     self._stop_execution_monitoring(execution_id)
 
         except subprocess.TimeoutExpired:
             logger.error(f"[EXECUTE-BUNDLE] Bundle execution {execution_id} timed out")
-            return False, f"Bundle execution timed out after {self._execution_limits['max_execution_time_seconds']} seconds"
+            return False, f"Bundle execution timed out after {self._execution_limits['max_execution_time_seconds']} seconds", []
 
         except Exception as e:
             logger.error(f"[EXECUTE-BUNDLE] Bundle execution {execution_id} error: {str(e)}")
             logger.error(f"[EXECUTE-BUNDLE] Traceback: {traceback.format_exc()}")
-            return False, f"Bundle execution error: {str(e)}"
+            return False, f"Bundle execution error: {str(e)}", []
 
     def execute_with_data(
         self,
