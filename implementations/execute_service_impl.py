@@ -41,7 +41,7 @@ class ExecuteServiceImpl(IExecuteService):
             'allowed_imports': [
                 'pandas', 'numpy', 'json', 'csv', 'datetime', 'math', 'os',
                 'sys', 'base64', 'hashlib', 're', 'collections', 'itertools',
-                'generated'
+                'generated', 'matplotlib'
             ],
             'forbidden_operations': [
                 'exec', 'eval', 'compile', '__import__',
