@@ -1,5 +1,22 @@
+# Enclave runtime dependencies. Fully pinned closure for CPython 3.8 /
+# manylinux2014 x86_64, installed with --no-deps --only-binary=:all: so the
+# image (and EIF PCRs) is reproducible. Installed before requirements-analysis.txt;
+# packages shared with it (python-dateutil, six) are pinned only here.
 cryptography==41.0.7
 boto3==1.34.0
 psutil==5.9.6
 PyYAML==6.0.2
 cbor2==5.6.5
+
+# cryptography (cffi 1.17.x is the last line supporting 3.8)
+cffi==1.17.1
+pycparser==2.23
+
+# boto3 / botocore
+botocore==1.34.162
+s3transfer==0.9.0
+jmespath==1.0.1
+# botocore requires urllib3<1.27 on python_version < "3.10"
+urllib3==1.26.20
+python-dateutil==2.9.0.post0
+six==1.17.0
