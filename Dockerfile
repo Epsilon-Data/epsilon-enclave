@@ -158,9 +158,19 @@ COPY --from=builder /usr/lib64/libjson-c.so* /usr/lib64/
 COPY --from=builder /build/aws-nitro-enclaves-sdk-c/bin/kmstool-enclave-cli/kmstool_enclave_cli /app/
 RUN chmod +x /app/kmstool_enclave_cli && ldconfig
 
-# Copy requirements and install Python dependencies
-COPY requirements.txt /app/
-RUN pip3 install --no-cache-dir -r requirements.txt
+# Amazon Linux 2's python38-pip predates manylinux2014 / manylinux_2_17 wheel
+# tags, so upgrade to a pinned pip first (25.0.1 is the last release for 3.8).
+# Use `python3 -m pip` afterwards: the old /usr/bin/pip3.8 entry script does not
+# work with a newer pip.
+RUN python3 -m pip install --no-cache-dir --only-binary=:all: pip==25.0.1
+
+# Python dependencies: runtime deps, then analysis libraries for researcher
+# scripts (numpy, pandas, matplotlib). Both files are fully pinned closures,
+# installed wheels only and without the resolver, so the EIF PCRs are reproducible
+COPY requirements.txt requirements-analysis.txt /app/
+RUN python3 -m pip install --no-cache-dir --no-deps --only-binary=:all: -r requirements.txt && \
+    python3 -m pip install --no-cache-dir --no-deps --only-binary=:all: -r requirements-analysis.txt && \
+    python3 -m pip check
 
 # Copy the enclave application modules
 COPY *.py /app/

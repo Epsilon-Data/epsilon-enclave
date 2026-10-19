@@ -104,6 +104,7 @@ class TdxAttestationService(IAttestationService):
         nonce: Optional[bytes] = None,
         atl_nonce: Optional[bytes] = None,
         atl_context_hash: Optional[bytes] = None,
+        files_manifest_sha256: Optional[str] = None,
     ) -> Tuple[bool, Dict[str, Any]]:
         """Per-execution attestation. Same proof fields as the Nitro backend,
         plus the ATL commitment fields, all committed via one 64-byte REPORTDATA."""
@@ -124,6 +125,9 @@ class TdxAttestationService(IAttestationService):
                 "atl_context_hash": atl_context_hash.hex() if atl_context_hash is not None else None,
                 "backend": "tdx",
             }
+            # Output-files manifest hash (sha256 of [] when no files)
+            if files_manifest_sha256 is not None:
+                proof_data["files_manifest_sha256"] = files_manifest_sha256
             # Canonical, separator-stable bytes the verifier must reproduce exactly.
             proof_canonical = json.dumps(proof_data, sort_keys=True, separators=(",", ":"))
             report_data = hashlib.sha512(proof_canonical.encode()).digest()  # 64 bytes

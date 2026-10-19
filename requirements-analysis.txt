@@ -1,0 +1,23 @@
+# Analysis libraries available to researcher scripts (see allowed_imports).
+# Fully pinned closure for CPython 3.8 / manylinux x86_64, installed with
+# --no-deps --only-binary=:all: so the image (and EIF PCRs) is reproducible.
+# python-dateutil and six (needed by pandas) are pinned in requirements.txt.
+# numpy 1.24.4, pandas 2.0.3 and matplotlib 3.7.5 are the last releases for 3.8.
+numpy==1.24.4
+pandas==2.0.3
+matplotlib==3.7.5
+
+# pandas
+pytz==2026.5
+tzdata==2026.5
+
+# matplotlib
+contourpy==1.1.1
+cycler==0.12.1
+fonttools==4.57.0
+kiwisolver==1.4.7
+packaging==26.2
+pillow==10.4.0
+pyparsing==3.1.4
+importlib-resources==6.4.5
+zipp==3.20.2

@@ -39,7 +39,7 @@ class IExecuteService(ABC):
         session_id: str,
         script_path: Optional[str] = None,
         csv_data: Optional[bytes] = None
-    ) -> Tuple[bool, str]:
+    ) -> Tuple[bool, str, List[Dict[str, Any]]]:
         """
         Execute a script from a decrypted bundle
 
@@ -50,7 +50,9 @@ class IExecuteService(ABC):
             csv_data: Optional decrypted CSV data to inject into generated/data.csv
 
         Returns:
-            Tuple of (success, execution_output or error_message)
+            Tuple of (success, execution_output or error_message, output_files).
+            output_files is [{"name", "size", "sha256", "type", "content"}] sorted
+            by name, collected from EPSILON_OUTPUT_DIR; [] on failure.
         """
         pass
 

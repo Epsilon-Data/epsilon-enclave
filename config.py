@@ -23,6 +23,8 @@ KMSTOOL_PATH = os.getenv('KMSTOOL_PATH', '/app/kmstool_enclave_cli')
 EXECUTION_TIMEOUT = int(os.getenv('EXECUTION_TIMEOUT', '300'))  # 5 minutes
 MAX_MEMORY_MB = int(os.getenv('MAX_MEMORY_MB', '512'))
 MAX_OUTPUT_SIZE_MB = int(os.getenv('MAX_OUTPUT_SIZE_MB', '50'))
+MAX_OUTPUT_FILES = int(os.getenv('MAX_OUTPUT_FILES', '20'))  # files written to EPSILON_OUTPUT_DIR
+MAX_OUTPUT_FILES_MB = int(os.getenv('MAX_OUTPUT_FILES_MB', '10'))  # total size of those files
 
 # Session management
 SESSION_TTL = int(os.getenv('SESSION_TTL', '3600'))  # 1 hour
