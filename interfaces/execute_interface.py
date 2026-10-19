@@ -52,7 +52,8 @@ class IExecuteService(ABC):
         Returns:
             Tuple of (success, execution_output or error_message, output_files).
             output_files is [{"name", "size", "sha256", "type", "content"}] sorted
-            by name, collected from EPSILON_OUTPUT_DIR; [] on failure.
+            by name (path relative to EPSILON_OUTPUT_DIR, "/"-separated),
+            collected recursively from EPSILON_OUTPUT_DIR; [] on failure.
         """
         pass
 
