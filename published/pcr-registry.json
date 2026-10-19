@@ -1,6 +1,24 @@
 {
   "versions": [
     {
+      "version": "1.5.0",
+      "pcr0": "82e566ed4ed8aefe72e490365e7c63e7acbf7cfd1774a70b0ed5341d7963c3ccf40ecbe49c409ad0a7fbedcd5232403c",
+      "pcr1": "4b4d5b3661b3efc12920900c80e126e4ce783c522de6c02a2a5bf7af3a2b9327b86776f188e4be1c1c404a129dbda493",
+      "pcr2": "40fb0ebd9ebcce7c55ad4b1d566dc5810ccc2159914c7be7710920497df07d503bd854021bfcb54c58f0232689176d5f",
+      "release_date": "2026-10-19",
+      "docker_image": "ghcr.io/epsilon-data/epsilon-enclave:latest (built 2026-10-19 from 7390e29)",
+      "source_commit": "7390e29"
+    },
+    {
+      "version": "1.4.0",
+      "pcr0": "e2d842511ec1c0e31bc42403297112abe8bc6c55e2e63c76502c103e3174a08a1ce99179fc5fb0afd1ca6dc1d0621301",
+      "pcr1": "4b4d5b3661b3efc12920900c80e126e4ce783c522de6c02a2a5bf7af3a2b9327b86776f188e4be1c1c404a129dbda493",
+      "pcr2": "36c2a376da6545042f597d6e4439c71c179c3d0e60da57dd1de1ba18f41cb07903d091170aa6ea908da43c616e7ab4fb",
+      "release_date": "2026-10-19",
+      "docker_image": "ghcr.io/epsilon-data/epsilon-enclave@sha256:15eed662a25595d4a4a83ee04aab423cc26ffa17632dc545edc589ccfb247aab",
+      "source_commit": "bdc4d0b"
+    },
+    {
       "version": "1.3.0",
       "pcr0": "a5373aaab5cf79dec28d5ce2dc3997c15d0794f48f0ac6a41b74c2a0e1bd12acd4e174cd60f00152e6e6b8cd88969e5e",
       "pcr1": "4b4d5b3661b3efc12920900c80e126e4ce783c522de6c02a2a5bf7af3a2b9327b86776f188e4be1c1c404a129dbda493",
@@ -29,4 +47,3 @@
     }
   ]
 }
-
