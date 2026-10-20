@@ -24,6 +24,8 @@ llvmlite==0.41.1
 slicer==0.0.7
 tqdm==4.70.1
 cloudpickle==3.1.2
+# numba on python < 3.9 (8.5.0 is the last release for 3.8; zipp is pinned below)
+importlib-metadata==8.5.0
 
 # pandas
 pytz==2026.5
