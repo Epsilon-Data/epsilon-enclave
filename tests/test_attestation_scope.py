@@ -80,3 +80,20 @@ class TestScriptUser:
 
         assert [c[0] for c in calls.mock_calls] == ['setgroups', 'setgid', 'setuid']
         calls.setuid.assert_called_once_with(SCRIPT_UID)
+
+
+class TestValidateScript:
+    @pytest.mark.parametrize('script', [
+        'import sklearn\nimport seaborn as sns\nfrom imblearn.over_sampling import SMOTE\n',
+        'import time, warnings, traceback\n',
+        'from src.models import train\n',
+        'import re\npattern = re.compile("x")\nmodel.compile(optimizer="adam")\n',
+    ], ids=['analysis-packages', 'stdlib', 'local-module', 'compile-methods'])
+    def test_imports_and_method_calls_are_allowed(self, script):
+        ok, msg = execute_service_impl.ExecuteServiceImpl(None).validate_script(script)
+        assert ok, msg
+
+    @pytest.mark.parametrize('script', ['exec("x")\n', 'eval("1")\n', '__import__("os")\n', 'x = (\n'])
+    def test_builtin_dynamic_code_and_bad_syntax_are_refused(self, script):
+        ok, _ = execute_service_impl.ExecuteServiceImpl(None).validate_script(script)
+        assert not ok

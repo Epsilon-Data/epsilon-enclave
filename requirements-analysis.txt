@@ -1,11 +1,29 @@
-# Analysis libraries available to researcher scripts (see allowed_imports).
+# Analysis libraries available to researcher scripts.
 # Fully pinned closure for CPython 3.8 / manylinux x86_64, installed with
 # --no-deps --only-binary=:all: so the image (and EIF PCRs) is reproducible.
 # python-dateutil and six (needed by pandas) are pinned in requirements.txt.
-# numpy 1.24.4, pandas 2.0.3 and matplotlib 3.7.5 are the last releases for 3.8.
+# Each is the last release for 3.8. xgboost-cpu is xgboost without the CUDA
+# libraries (imported as xgboost).
 numpy==1.24.4
 pandas==2.0.3
 matplotlib==3.7.5
+scipy==1.10.1
+scikit-learn==1.3.2
+seaborn==0.13.2
+imbalanced-learn==0.12.4
+xgboost-cpu==2.1.4
+shap==0.44.1
+joblib==1.4.2
+
+# scikit-learn
+threadpoolctl==3.5.0
+
+# shap
+numba==0.58.1
+llvmlite==0.41.1
+slicer==0.0.7
+tqdm==4.70.1
+cloudpickle==3.1.2
 
 # pandas
 pytz==2026.5
