@@ -249,6 +249,11 @@ class RequestHandlerImpl(IRequestHandler):
         elif operation == 'get_attestation_for_proxy':
             if 'job_id' not in request:
                 return "Missing required field: job_id"
+        elif operation == 'get_attestation':
+            if 'session_id' not in request:
+                return "Missing required field: session_id"
+            if 'user_data' in request:
+                return "user_data is not accepted: the enclave attests only its own session key"
 
         return None
 
@@ -392,11 +397,17 @@ class RequestHandlerImpl(IRequestHandler):
             return self._error_response(f"Proxy attestation error: {str(e)}")
 
     def _get_attestation(self, request: Dict[str, Any]) -> Dict[str, Any]:
-        """Get attestation document with optional user data."""
+        """Attest the public key of a session this enclave created.
+
+        user_data is always {"public_key", "session_id"} built here, never taken from the
+        caller, so the host cannot get a signed document for a key or record of its choosing.
+        """
         try:
-            user_data = request.get('user_data')
-            if user_data:
-                user_data = user_data.encode() if isinstance(user_data, str) else user_data
+            session_id = request['session_id']
+            public_key = self.keypair_manager.get_public_key(session_id)
+            if not public_key:
+                return self._error_response(f"Unknown session: {session_id}")
+            user_data = json.dumps({'public_key': public_key, 'session_id': session_id}).encode()
 
             nonce = request.get('nonce')
             if nonce:

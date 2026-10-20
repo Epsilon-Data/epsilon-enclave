@@ -20,11 +20,36 @@ from typing import Tuple, Dict, Any, Optional, List
 from interfaces import IExecuteService
 from config import (
     EXECUTION_TIMEOUT, MAX_MEMORY_MB, MAX_OUTPUT_SIZE_MB, MAX_ZIP_ENTRIES, MAX_ZIP_TOTAL_SIZE,
-    MAX_OUTPUT_FILES, MAX_OUTPUT_FILES_MB,
+    MAX_OUTPUT_FILES, MAX_OUTPUT_FILES_MB, SCRIPT_UID, SCRIPT_GID,
 )
 from implementations.output_files import collect_output_files, OutputFilesError, REJECTED_PREFIX
 
 logger = logging.getLogger(__name__)
+
+
+def _drop_privileges():
+    """Runs in the child before exec: switch to the script user for good."""
+    os.setgroups([])
+    os.setgid(SCRIPT_GID)
+    os.setuid(SCRIPT_UID)
+
+
+def _as_script_user(*paths: str) -> Dict[str, Any]:
+    """subprocess.run kwargs that run the script as SCRIPT_UID.
+
+    When the enclave runs as root, the given paths (recursively) are handed to the script user
+    and the child drops root before exec, so the script cannot reach /dev/nsm or the enclave's
+    keys. Outside root (local tests) the process is already unprivileged.
+    """
+    if os.geteuid() != 0:
+        return {}
+    for path in paths:
+        os.chown(path, SCRIPT_UID, SCRIPT_GID)
+        if os.path.isdir(path):
+            for root, dirs, files in os.walk(path):
+                for name in dirs + files:
+                    os.chown(os.path.join(root, name), SCRIPT_UID, SCRIPT_GID, follow_symlinks=False)
+    return {'preexec_fn': _drop_privileges}
 
 
 class ExecuteServiceImpl(IExecuteService):
@@ -85,7 +110,8 @@ class ExecuteServiceImpl(IExecuteService):
                     capture_output=True,
                     text=True,
                     timeout=self._execution_limits['max_execution_time_seconds'],
-                    cwd=tempfile.gettempdir()
+                    cwd=tempfile.gettempdir(),
+                    **_as_script_user(script_path)
                 )
 
                 # Check output size
@@ -195,6 +221,7 @@ class ExecuteServiceImpl(IExecuteService):
                 env['EPSILON_OUTPUT_DIR'] = output_dir
                 env['MPLBACKEND'] = 'Agg'
                 env['MPLCONFIGDIR'] = mpl_config_dir
+                env['HOME'] = temp_dir
 
                 # Execute script with cwd set to bundle dir (no os.chdir)
                 self._start_execution_monitoring(execution_id, session_id)
@@ -207,7 +234,8 @@ class ExecuteServiceImpl(IExecuteService):
                         text=True,
                         timeout=self._execution_limits['max_execution_time_seconds'],
                         cwd=temp_dir,
-                        env=env
+                        env=env,
+                        **_as_script_user(temp_dir)
                     )
                     run_ms = round((time.time() - t_run) * 1000, 2)
 
@@ -272,7 +300,8 @@ class ExecuteServiceImpl(IExecuteService):
                     capture_output=True,
                     text=True,
                     timeout=self._execution_limits['max_execution_time_seconds'],
-                    cwd=temp_dir
+                    cwd=temp_dir,
+                    **_as_script_user(temp_dir)
                 )
 
                 if result.returncode == 0:
