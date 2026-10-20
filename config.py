@@ -25,6 +25,9 @@ MAX_MEMORY_MB = int(os.getenv('MAX_MEMORY_MB', '512'))
 MAX_OUTPUT_SIZE_MB = int(os.getenv('MAX_OUTPUT_SIZE_MB', '50'))
 MAX_OUTPUT_FILES = int(os.getenv('MAX_OUTPUT_FILES', '20'))  # files written to EPSILON_OUTPUT_DIR
 MAX_OUTPUT_FILES_MB = int(os.getenv('MAX_OUTPUT_FILES_MB', '10'))  # total size of those files
+# Researcher scripts run as this unprivileged user so they cannot open /dev/nsm (root only)
+SCRIPT_UID = int(os.getenv('SCRIPT_UID', '65534'))
+SCRIPT_GID = int(os.getenv('SCRIPT_GID', '65534'))
 
 # Session management
 SESSION_TTL = int(os.getenv('SESSION_TTL', '3600'))  # 1 hour

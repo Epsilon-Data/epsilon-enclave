@@ -57,6 +57,11 @@ def main():
     logger.info("  - IKeyPairManager (RSA key management)")
     logger.info("=" * 60)
 
+    # Only root (this server) may use the NSM; researcher scripts run as SCRIPT_UID
+    if os.path.exists('/dev/nsm'):
+        os.chown('/dev/nsm', 0, 0)
+        os.chmod('/dev/nsm', 0o600)
+
     # Initialize KMS attestation if available
     kms_attestation = create_kms_attestation()
 
