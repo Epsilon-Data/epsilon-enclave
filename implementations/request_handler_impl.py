@@ -7,15 +7,20 @@ import hashlib
 import json
 import logging
 import os
+import re
 import time
 import traceback
 from typing import Dict, Any, Optional
 
 from interfaces import IRequestHandler, IDecryptService, IExecuteService, IKeyPairManager
 from interfaces.attestation_interface import IAttestationService
+from interfaces.execute_interface import BundleResult
 from implementations.output_files import build_files_manifest, files_manifest_sha256
 
 logger = logging.getLogger(__name__)
+
+# Job and attempt identifiers are signed as supplied, so their form is fixed.
+_IDENTIFIER_PATTERN = re.compile(r'^[A-Za-z0-9_.:-]{1,64}$')
 
 
 class RequestHandlerImpl(IRequestHandler):
@@ -152,85 +157,145 @@ class RequestHandlerImpl(IRequestHandler):
 
             # Step 3: Execute the decrypted bundle with optional CSV data
             t0 = time.time()
-            success, output, files = self.execute_service.execute_bundle(
+            result = self.execute_service.execute_bundle(
                 decrypted_zip, session_id, csv_data=decrypted_csv
             )
+            success, output, files = result.success, result.output, result.files
             timing['script_execution_ms'] = round((time.time() - t0) * 1000, 2)
 
             # Step 4: Clean up session (remove private key from memory)
             self.cleanup_session(session_id)
 
-            if success:
-                logger.info(f"[EXECUTE] Execution successful ({timing['script_execution_ms']}ms)")
-
-                # ATL binding (paper §3.5): if the coordinator went through
-                # commitment-then-dispatch it supplied atl_nonce (= H(STH))
-                # and atl_context_hash here. Both ride as hex strings on the
-                # VSock RPC. Forwarded to the attestation service so they
-                # become part of the hardware-signed user_data — that is what
-                # makes a logged Commitment+HA pair cryptographically bound.
-                atl_nonce_hex = request.get('atl_nonce')
-                external_nonce = bytes.fromhex(atl_nonce_hex) if atl_nonce_hex else None
-                context_hash = request.get('atl_context_hash')
-
-                # Output files: their manifest hash is bound into the attestation
-                manifest_sha256 = files_manifest_sha256(build_files_manifest(files))
-
-                # Generate attestation proof for user
-                t0 = time.time()
-                attestation_success, attestation_result = self.attestation_service.create_execution_attestation(
-                    job_id=session_id,
-                    output=output,
-                    script_bytes=decrypted_zip,
-                    dataset_bytes=decrypted_csv,
-                    external_nonce=external_nonce,
-                    context_hash=context_hash,
-                    files_manifest_sha256=manifest_sha256,
-                )
-                timing['attestation_generation_ms'] = round((time.time() - t0) * 1000, 2)
-
-                logger.info(f"[TIMING] session={session_id} decrypt_zip={timing.get('decrypt_zip_ms')}ms "
-                            f"decrypt_csv={timing.get('decrypt_csv_ms', 'N/A')}ms "
-                            f"script_exec={timing['script_execution_ms']}ms "
-                            f"attestation_gen={timing['attestation_generation_ms']}ms")
-
-                response = {
-                    'success': True,
-                    'output': output,
-                    'files': [
-                        {
-                            'name': f['name'],
-                            'size': f['size'],
-                            'sha256': f['sha256'],
-                            'type': f['type'],
-                            'content_b64': base64.b64encode(f['content']).decode(),
-                        }
-                        for f in files
-                    ],
-                    'files_manifest_sha256': manifest_sha256,
-                    'session_id': session_id,
-                    'enclave_proof': {
-                        'ran_in_enclave': self.attestation_service.is_real_enclave,
-                        'attestation_available': attestation_success
-                    },
-                    'timing': timing
-                }
-
-                if attestation_success:
-                    response['attestation'] = attestation_result
-                    logger.info(f"[EXECUTE] Attestation generated for session {session_id}")
-                else:
-                    logger.warning(f"[EXECUTE] Attestation generation failed: {attestation_result}")
-
-                return response
-            else:
+            if not success:
                 logger.error(f"[EXECUTE] Execution failed: {output}")
-                return self._error_response(f"Execution failed: {output}")
+                return self._failed_execution_response(
+                    request, session_id, result, decrypted_zip, decrypted_csv, timing
+                )
+
+            logger.info(f"[EXECUTE] Execution successful ({timing['script_execution_ms']}ms)")
+
+            # ATL binding (paper §3.5): if the coordinator went through
+            # commitment-then-dispatch it supplied atl_nonce (= H(STH))
+            # and atl_context_hash here. Both ride as hex strings on the
+            # VSock RPC. Forwarded to the attestation service so they
+            # become part of the hardware-signed user_data — that is what
+            # makes a logged Commitment+HA pair cryptographically bound.
+            atl_nonce_hex = request.get('atl_nonce')
+            external_nonce = bytes.fromhex(atl_nonce_hex) if atl_nonce_hex else None
+            context_hash = request.get('atl_context_hash')
+
+            # Output files: their manifest hash is bound into the attestation
+            manifest_sha256 = files_manifest_sha256(build_files_manifest(files))
+
+            # Generate attestation proof for user
+            t0 = time.time()
+            attestation_success, attestation_result = self.attestation_service.create_execution_attestation(
+                job_id=session_id,
+                output=output,
+                script_bytes=decrypted_zip,
+                dataset_bytes=decrypted_csv,
+                external_nonce=external_nonce,
+                context_hash=context_hash,
+                files_manifest_sha256=manifest_sha256,
+                outcome=result.outcome,
+                exit_code=result.exit_code,
+                platform_job_id=request.get('platform_job_id'),
+                attempt_id=request.get('attempt_id'),
+            )
+            timing['attestation_generation_ms'] = round((time.time() - t0) * 1000, 2)
+
+            logger.info(f"[TIMING] session={session_id} decrypt_zip={timing.get('decrypt_zip_ms')}ms "
+                        f"decrypt_csv={timing.get('decrypt_csv_ms', 'N/A')}ms "
+                        f"script_exec={timing['script_execution_ms']}ms "
+                        f"attestation_gen={timing['attestation_generation_ms']}ms")
+
+            response = {
+                'success': True,
+                'output': output,
+                'files': [
+                    {
+                        'name': f['name'],
+                        'size': f['size'],
+                        'sha256': f['sha256'],
+                        'type': f['type'],
+                        'content_b64': base64.b64encode(f['content']).decode(),
+                    }
+                    for f in files
+                ],
+                'files_manifest_sha256': manifest_sha256,
+                'session_id': session_id,
+                'outcome': result.outcome,
+                'exit_code': result.exit_code,
+                'enclave_proof': {
+                    'ran_in_enclave': self.attestation_service.is_real_enclave,
+                    'attestation_available': attestation_success
+                },
+                'timing': timing
+            }
+
+            if attestation_success:
+                response['attestation'] = attestation_result
+                logger.info(f"[EXECUTE] Attestation generated for session {session_id}")
+            else:
+                logger.warning(f"[EXECUTE] Attestation generation failed: {attestation_result}")
+
+            return response
 
         except Exception as e:
             logger.error(f"Execution error: {str(e)}")
             logger.error(f"Traceback: {traceback.format_exc()}")
             return self._error_response(f"Execution error: {str(e)}")
+
+    def _failed_execution_response(
+        self,
+        request: Dict[str, Any],
+        session_id: str,
+        result: BundleResult,
+        decrypted_zip: bytes,
+        decrypted_csv: Optional[bytes],
+        timing: Dict[str, float],
+    ) -> Dict[str, Any]:
+        """Error response for a run that did not succeed, with a signed record of it.
+
+        The record binds the code, the input, the outcome and the hash of the error text.
+        No output is attested: the output hash is that of the empty string and the files
+        manifest is the empty one.
+        """
+        response = self._error_response(f"Execution failed: {result.output}")
+        atl_nonce_hex = request.get('atl_nonce')
+
+        t0 = time.time()
+        attestation_success, attestation_result = self.attestation_service.create_execution_attestation(
+            job_id=session_id,
+            output='',
+            script_bytes=decrypted_zip,
+            dataset_bytes=decrypted_csv,
+            external_nonce=bytes.fromhex(atl_nonce_hex) if atl_nonce_hex else None,
+            context_hash=request.get('atl_context_hash'),
+            files_manifest_sha256=files_manifest_sha256(build_files_manifest([])),
+            outcome=result.outcome,
+            exit_code=result.exit_code,
+            error_hash=hashlib.sha256(response['error'].encode()).hexdigest(),
+            platform_job_id=request.get('platform_job_id'),
+            attempt_id=request.get('attempt_id'),
+        )
+        timing['attestation_generation_ms'] = round((time.time() - t0) * 1000, 2)
+
+        response.update({
+            'session_id': session_id,
+            'outcome': result.outcome,
+            'exit_code': result.exit_code,
+            'enclave_proof': {
+                'ran_in_enclave': self.attestation_service.is_real_enclave,
+                'attestation_available': attestation_success,
+            },
+            'timing': timing,
+        })
+        if attestation_success:
+            response['attestation'] = attestation_result
+        else:
+            logger.warning(f"[EXECUTE] Attestation of the failed run was not generated: {attestation_result}")
+        return response
 
     def validate_request(self, request: Dict[str, Any]) -> Optional[str]:
         """Validate request has required fields"""
@@ -246,6 +311,10 @@ class RequestHandlerImpl(IRequestHandler):
             for field in required:
                 if field not in request:
                     return f"Missing required field: {field}"
+            for field in ('platform_job_id', 'attempt_id'):
+                value = request.get(field)
+                if value is not None and not (isinstance(value, str) and _IDENTIFIER_PATTERN.match(value)):
+                    return f"Invalid {field}: expected 1-64 characters of A-Z a-z 0-9 _ . : -"
         elif operation == 'get_attestation_for_proxy':
             if 'job_id' not in request:
                 return "Missing required field: job_id"

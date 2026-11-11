@@ -21,7 +21,7 @@ from implementations.local_attestation_service import generate_local_attestation
 
 import cbor2
 
-from interfaces.attestation_interface import IAttestationService
+from interfaces.attestation_interface import IAttestationService, execution_fields
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +33,9 @@ RUNNING_IN_ENCLAVE = os.path.exists('/dev/nsm')
 # type = 0x0A (NSM_IOCTL_MAGIC), nr = 0, size = 32 (sizeof NsmMessage = 2 * iovec)
 # = 0xC0000000 | 0x00000A00 | 0 | 0x00200000 = 0xC0200A00
 NSM_IOCTL_REQUEST = 0xC0200A00
+
+
+MAX_USER_DATA_BYTES = 1024  # NSM limit for user_data
 
 
 class NSMError(Exception):
@@ -291,6 +294,11 @@ class AttestationService(IAttestationService):
         external_nonce: Optional[bytes] = None,
         context_hash: Optional[str] = None,
         files_manifest_sha256: Optional[str] = None,
+        outcome: Optional[str] = None,
+        exit_code: Optional[int] = None,
+        error_hash: Optional[str] = None,
+        platform_job_id: Optional[str] = None,
+        attempt_id: Optional[str] = None,
     ) -> Tuple[bool, Dict[str, Any]]:
         """
         Create an attestation for a specific execution.
@@ -308,6 +316,10 @@ class AttestationService(IAttestationService):
                          Binds ATL entry metadata to the hardware-signed attestation.
             files_manifest_sha256: SHA-256 of the canonical output-files manifest.
                          Binds the output files to the hardware-signed attestation.
+            outcome, exit_code, error_hash: What happened to the script. A run that did
+                         not succeed is signed too, with the hash of its error text.
+            platform_job_id, attempt_id: The platform's identifiers for the job and for
+                         this execution attempt, as supplied by the coordinator.
         """
         try:
             # Create user_data containing per-execution proof (paper spec)
@@ -329,6 +341,9 @@ class AttestationService(IAttestationService):
             if files_manifest_sha256 is not None:
                 proof_data['files_manifest_sha256'] = files_manifest_sha256
 
+            # Outcome of the run and the platform's job/attempt identifiers
+            proof_data.update(execution_fields(outcome, exit_code, error_hash, platform_job_id, attempt_id))
+
             # Use external nonce (H(STH)) if provided, otherwise random (non-compliant)
             if external_nonce:
                 nonce = external_nonce
@@ -339,6 +354,11 @@ class AttestationService(IAttestationService):
                 proof_data['nonce_source'] = 'random'  # marks as non-compliant
 
             proof_bytes = json.dumps(proof_data, sort_keys=True).encode()
+            if len(proof_bytes) > MAX_USER_DATA_BYTES:
+                return False, {
+                    'error': 'USER_DATA_TOO_LARGE',
+                    'message': f'{len(proof_bytes)} bytes exceed the {MAX_USER_DATA_BYTES}-byte limit',
+                }
 
             # Generate attestation with proof data
             success, attestation = self.generate_attestation(
@@ -357,6 +377,7 @@ class AttestationService(IAttestationService):
                         'nonce_source': 'sth' if external_nonce else 'random',
                         'context_hash': context_hash,
                         'files_manifest_sha256': files_manifest_sha256,
+                        **execution_fields(outcome, exit_code, error_hash, platform_job_id, attempt_id),
                     },
                     'verification_guide': {
                         'step_1': 'Download AWS Nitro root certificate from aws_root_cert_url',

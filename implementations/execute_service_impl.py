@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -18,6 +19,10 @@ import zipfile
 from typing import Tuple, Dict, Any, Optional, List
 
 from interfaces import IExecuteService
+from interfaces.execute_interface import (
+    BundleResult, OUTCOME_SUCCEEDED, OUTCOME_FAILED, OUTCOME_TIMED_OUT, OUTCOME_INVALID_BUNDLE,
+    OUTCOME_OUTPUT_REJECTED, OUTCOME_ERROR,
+)
 from config import (
     EXECUTION_TIMEOUT, MAX_MEMORY_MB, MAX_OUTPUT_SIZE_MB, MAX_ZIP_ENTRIES, MAX_ZIP_TOTAL_SIZE,
     MAX_OUTPUT_FILES, MAX_OUTPUT_FILES_MB, SCRIPT_UID, SCRIPT_GID,
@@ -50,6 +55,94 @@ def _as_script_user(*paths: str) -> Dict[str, Any]:
                 for name in dirs + files:
                     os.chown(os.path.join(root, name), SCRIPT_UID, SCRIPT_GID, follow_symlinks=False)
     return {'preexec_fn': _drop_privileges}
+
+
+# Scripts of all jobs share SCRIPT_UID, so only one runs at a time and nothing of a job
+# (process or file) is left when the next one starts.
+_RUN_LOCK = threading.Lock()
+_SHARED_TEMP_DIRS = ('/tmp', '/var/tmp', '/dev/shm')
+_KILL_ALL_OWN_PROCESSES = 'import os, signal; os.kill(-1, signal.SIGKILL)'
+_REAP_TIMEOUT_SECONDS = 5
+
+
+def _sweeps_script_user() -> bool:
+    """True when the enclave is root and scripts run as a separate user."""
+    return os.geteuid() == 0 and SCRIPT_UID != 0
+
+
+def _kill_process_group(pgid: int) -> None:
+    try:
+        os.killpg(pgid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
+
+
+def _kill_script_user_processes() -> None:
+    """Kill every process of the script user, including ones that left the job's session.
+
+    kill(-1) issued as the script user reaches all of its processes at once, so a script
+    cannot outrun it by forking.
+    """
+    if not _sweeps_script_user():
+        return
+    subprocess.run(
+        [sys.executable, '-c', _KILL_ALL_OWN_PROCESSES],
+        preexec_fn=_drop_privileges, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False,
+    )
+
+
+def _remove_script_user_files(keep: str) -> None:
+    """Delete what the script user left in the shared temp locations (``keep`` is the job dir)."""
+    if not _sweeps_script_user():
+        return
+    keep = os.path.realpath(keep)
+    for base in _SHARED_TEMP_DIRS:
+        try:
+            entries = list(os.scandir(base))
+        except OSError:
+            continue
+        for entry in entries:
+            try:
+                if entry.stat(follow_symlinks=False).st_uid != SCRIPT_UID:
+                    continue
+                if os.path.realpath(entry.path) == keep:
+                    continue
+                if entry.is_dir(follow_symlinks=False):
+                    shutil.rmtree(entry.path, ignore_errors=True)
+                else:
+                    os.unlink(entry.path)
+            except OSError as e:
+                logger.warning(f"[EXECUTE] Could not remove leftover {entry.path}: {e}")
+
+
+def _run_script(
+    cmd: List[str], cwd: str, timeout: int, owned_path: str, env: Optional[Dict[str, str]] = None,
+) -> subprocess.CompletedProcess:
+    """Run one script as the script user in its own session, then remove what it left behind.
+
+    Raises subprocess.TimeoutExpired like subprocess.run.
+    """
+    with _RUN_LOCK:
+        proc = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=cwd, env=env,
+            start_new_session=True, **_as_script_user(owned_path)
+        )
+        try:
+            try:
+                stdout, stderr = proc.communicate(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                _kill_process_group(proc.pid)
+                _kill_script_user_processes()
+                try:
+                    proc.communicate(timeout=_REAP_TIMEOUT_SECONDS)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                raise
+            return subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
+        finally:
+            _kill_process_group(proc.pid)
+            _kill_script_user_processes()
+            _remove_script_user_files(keep=owned_path)
 
 
 class ExecuteServiceImpl(IExecuteService):
@@ -100,13 +193,11 @@ class ExecuteServiceImpl(IExecuteService):
                 script_path = script_file.name
 
             try:
-                result = subprocess.run(
+                result = _run_script(
                     [sys.executable, script_path],
-                    capture_output=True,
-                    text=True,
-                    timeout=self._execution_limits['max_execution_time_seconds'],
                     cwd=tempfile.gettempdir(),
-                    **_as_script_user(script_path)
+                    timeout=self._execution_limits['max_execution_time_seconds'],
+                    owned_path=script_path,
                 )
 
                 # Check output size
@@ -147,7 +238,7 @@ class ExecuteServiceImpl(IExecuteService):
         session_id: str,
         script_path: Optional[str] = None,
         csv_data: Optional[bytes] = None
-    ) -> Tuple[bool, str, List[Dict[str, Any]]]:
+    ) -> BundleResult:
         """
         Execute a script from a decrypted bundle
 
@@ -158,9 +249,9 @@ class ExecuteServiceImpl(IExecuteService):
             csv_data: Optional decrypted CSV data to inject into generated/data.csv
 
         Returns:
-            (success, output or error message, output files). Output files are the
-            entries collected from EPSILON_OUTPUT_DIR (see output_files.py); always
-            [] on failure.
+            BundleResult(success, output or error message, output files, outcome,
+            exit code). Output files are the entries collected from EPSILON_OUTPUT_DIR
+            (see output_files.py); always [] on failure.
         """
         execution_id = f"bundle_{session_id}_{int(time.time())}"
 
@@ -175,7 +266,7 @@ class ExecuteServiceImpl(IExecuteService):
                 t_extract = time.time()
                 extraction_error = self._safe_extract_zip(bundle_data, temp_dir)
                 if extraction_error:
-                    return False, extraction_error, []
+                    return BundleResult(False, extraction_error, [], OUTCOME_INVALID_BUNDLE, None)
                 extract_ms = round((time.time() - t_extract) * 1000, 2)
 
                 logger.info(f"[EXECUTE-BUNDLE] Extracted bundle to {temp_dir} ({extract_ms}ms)")
@@ -191,7 +282,10 @@ class ExecuteServiceImpl(IExecuteService):
                 # Find script file
                 target_script = self._find_script(temp_dir, script_path)
                 if target_script is None:
-                    return False, f"Script not found: {script_path or 'no .py file in bundle'}", []
+                    return BundleResult(
+                        False, f"Script not found: {script_path or 'no .py file in bundle'}", [],
+                        OUTCOME_INVALID_BUNDLE, None,
+                    )
 
                 # Validate script content
                 with open(target_script, 'r') as f:
@@ -199,7 +293,9 @@ class ExecuteServiceImpl(IExecuteService):
 
                 is_valid, validation_msg = self.validate_script(script_content)
                 if not is_valid:
-                    return False, f"Script validation failed: {validation_msg}", []
+                    return BundleResult(
+                        False, f"Script validation failed: {validation_msg}", [], OUTCOME_INVALID_BUNDLE, None
+                    )
 
                 # Process any CSV files in the bundle (for cases without injected CSV)
                 if not csv_data:
@@ -217,20 +313,19 @@ class ExecuteServiceImpl(IExecuteService):
                 env['MPLBACKEND'] = 'Agg'
                 env['MPLCONFIGDIR'] = mpl_config_dir
                 env['HOME'] = temp_dir
+                env['TMPDIR'] = temp_dir
 
                 # Execute script with cwd set to bundle dir (no os.chdir)
                 self._start_execution_monitoring(execution_id, session_id)
                 try:
                     logger.info(f"[EXECUTE-BUNDLE] Running: {sys.executable} {target_script}")
                     t_run = time.time()
-                    result = subprocess.run(
+                    result = _run_script(
                         [sys.executable, target_script],
-                        capture_output=True,
-                        text=True,
-                        timeout=self._execution_limits['max_execution_time_seconds'],
                         cwd=temp_dir,
+                        timeout=self._execution_limits['max_execution_time_seconds'],
+                        owned_path=temp_dir,
                         env=env,
-                        **_as_script_user(temp_dir)
                     )
                     run_ms = round((time.time() - t_run) * 1000, 2)
 
@@ -246,24 +341,31 @@ class ExecuteServiceImpl(IExecuteService):
                             )
                         except (OutputFilesError, OSError) as e:
                             logger.error(f"[EXECUTE-BUNDLE] Output files rejected for {execution_id}: {e}")
-                            return False, f"{REJECTED_PREFIX}{e}", []
+                            return BundleResult(False, f"{REJECTED_PREFIX}{e}", [], OUTCOME_OUTPUT_REJECTED, 0)
                         logger.info(f"[EXECUTE-BUNDLE] Collected {len(files)} output file(s)")
-                        return True, output, files
+                        return BundleResult(True, output, files, OUTCOME_SUCCEEDED, 0)
                     else:
                         logger.error(f"[EXECUTE-BUNDLE] Bundle execution {execution_id} failed")
                         logger.error(f"[EXECUTE-BUNDLE] STDERR: {result.stderr}")
-                        return False, f"Bundle execution failed:\nSTDOUT: {result.stdout}\nSTDERR: {result.stderr}", []
+                        return BundleResult(
+                            False, f"Bundle execution failed:\nSTDOUT: {result.stdout}\nSTDERR: {result.stderr}", [],
+                            OUTCOME_FAILED, result.returncode,
+                        )
                 finally:
                     self._stop_execution_monitoring(execution_id)
 
         except subprocess.TimeoutExpired:
             logger.error(f"[EXECUTE-BUNDLE] Bundle execution {execution_id} timed out")
-            return False, f"Bundle execution timed out after {self._execution_limits['max_execution_time_seconds']} seconds", []
+            return BundleResult(
+                False,
+                f"Bundle execution timed out after {self._execution_limits['max_execution_time_seconds']} seconds",
+                [], OUTCOME_TIMED_OUT, None,
+            )
 
         except Exception as e:
             logger.error(f"[EXECUTE-BUNDLE] Bundle execution {execution_id} error: {str(e)}")
             logger.error(f"[EXECUTE-BUNDLE] Traceback: {traceback.format_exc()}")
-            return False, f"Bundle execution error: {str(e)}", []
+            return BundleResult(False, f"Bundle execution error: {str(e)}", [], OUTCOME_ERROR, None)
 
     def execute_with_data(
         self,
@@ -290,13 +392,11 @@ class ExecuteServiceImpl(IExecuteService):
                 with open(script_path, 'w') as f:
                     f.write(script_content)
 
-                result = subprocess.run(
+                result = _run_script(
                     [sys.executable, script_path],
-                    capture_output=True,
-                    text=True,
-                    timeout=self._execution_limits['max_execution_time_seconds'],
                     cwd=temp_dir,
-                    **_as_script_user(temp_dir)
+                    timeout=self._execution_limits['max_execution_time_seconds'],
+                    owned_path=temp_dir,
                 )
 
                 if result.returncode == 0:

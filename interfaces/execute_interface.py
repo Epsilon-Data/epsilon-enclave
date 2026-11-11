@@ -3,7 +3,24 @@ Execute Service Interface
 Abstract interface for handling job execution in the enclave
 """
 from abc import ABC, abstractmethod
-from typing import Tuple, Dict, Any, Optional, List
+from typing import Tuple, Dict, Any, Optional, List, NamedTuple
+
+# What happened to the researcher's script. Signed into the execution record.
+OUTCOME_SUCCEEDED = 'succeeded'
+OUTCOME_FAILED = 'failed'  # ran and exited non-zero
+OUTCOME_TIMED_OUT = 'timed_out'
+OUTCOME_INVALID_BUNDLE = 'invalid_bundle'  # never ran: bad archive, no script, rejected script
+OUTCOME_OUTPUT_REJECTED = 'output_rejected'  # ran, but its output files broke the limits
+OUTCOME_ERROR = 'error'  # the enclave could not run it
+
+
+class BundleResult(NamedTuple):
+    """Result of execute_bundle. ``output`` is the error text unless ``success``."""
+    success: bool
+    output: str
+    files: List[Dict[str, Any]]
+    outcome: str
+    exit_code: Optional[int]
 
 
 class IExecuteService(ABC):
@@ -39,7 +56,7 @@ class IExecuteService(ABC):
         session_id: str,
         script_path: Optional[str] = None,
         csv_data: Optional[bytes] = None
-    ) -> Tuple[bool, str, List[Dict[str, Any]]]:
+    ) -> BundleResult:
         """
         Execute a script from a decrypted bundle
 
@@ -50,8 +67,8 @@ class IExecuteService(ABC):
             csv_data: Optional decrypted CSV data to inject into generated/data.csv
 
         Returns:
-            Tuple of (success, execution_output or error_message, output_files).
-            output_files is [{"name", "size", "sha256", "type", "content"}] sorted
+            BundleResult(success, execution_output or error_message, output_files,
+            outcome, exit_code). output_files is [{"name", "size", "sha256", "type", "content"}] sorted
             by name (path relative to EPSILON_OUTPUT_DIR, "/"-separated),
             collected recursively from EPSILON_OUTPUT_DIR; [] on failure.
         """

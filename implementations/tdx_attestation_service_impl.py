@@ -25,7 +25,7 @@ import subprocess
 import time
 from typing import Tuple, Dict, Any, Optional
 
-from interfaces.attestation_interface import IAttestationService
+from interfaces.attestation_interface import IAttestationService, execution_fields
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +105,11 @@ class TdxAttestationService(IAttestationService):
         atl_nonce: Optional[bytes] = None,
         atl_context_hash: Optional[bytes] = None,
         files_manifest_sha256: Optional[str] = None,
+        outcome: Optional[str] = None,
+        exit_code: Optional[int] = None,
+        error_hash: Optional[str] = None,
+        platform_job_id: Optional[str] = None,
+        attempt_id: Optional[str] = None,
     ) -> Tuple[bool, Dict[str, Any]]:
         """Per-execution attestation. Same proof fields as the Nitro backend,
         plus the ATL commitment fields, all committed via one 64-byte REPORTDATA."""
@@ -128,6 +133,7 @@ class TdxAttestationService(IAttestationService):
             # Output-files manifest hash (sha256 of [] when no files)
             if files_manifest_sha256 is not None:
                 proof_data["files_manifest_sha256"] = files_manifest_sha256
+            proof_data.update(execution_fields(outcome, exit_code, error_hash, platform_job_id, attempt_id))
             # Canonical, separator-stable bytes the verifier must reproduce exactly.
             proof_canonical = json.dumps(proof_data, sort_keys=True, separators=(",", ":"))
             report_data = hashlib.sha512(proof_canonical.encode()).digest()  # 64 bytes

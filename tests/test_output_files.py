@@ -22,6 +22,7 @@ from implementations.output_files import (
 )
 from implementations.request_handler_impl import RequestHandlerImpl
 from implementations.tdx_attestation_service_impl import TdxAttestationService
+from interfaces.execute_interface import BundleResult, OUTCOME_OUTPUT_REJECTED, OUTCOME_SUCCEEDED
 
 MAX_FILES = 20
 MAX_BYTES = 10 * 1024 * 1024
@@ -297,13 +298,13 @@ class TestExecuteBundle:
             "    f.write('a,b\\n1,2\\n')\n"
             "print('done')\n"
         )
-        ok, output, files = ExecuteServiceImpl(None).execute_bundle(_bundle(script), 's1')
+        ok, output, files, _, _ = ExecuteServiceImpl(None).execute_bundle(_bundle(script), 's1')
         assert ok, output
         assert 'done' in output
         assert [(f['name'], f['type'], f['content']) for f in files] == [('result.csv', 'text/csv', b'a,b\n1,2\n')]
 
     def test_no_files_written(self):
-        ok, output, files = ExecuteServiceImpl(None).execute_bundle(_bundle("print('x')\n"), 's2')
+        ok, output, files, _, _ = ExecuteServiceImpl(None).execute_bundle(_bundle("print('x')\n"), 's2')
         assert ok, output
         assert files == []
 
@@ -319,7 +320,7 @@ class TestExecuteBundle:
             "with open(os.path.join(d, 'notes'), 'w') as f:\n"
             "    f.write('hi\\n')\n"
         )
-        ok, output, files = ExecuteServiceImpl(None).execute_bundle(_bundle(script), 's5')
+        ok, output, files, _, _ = ExecuteServiceImpl(None).execute_bundle(_bundle(script), 's5')
         assert ok, output
         assert [(f['name'], f['type']) for f in files] == [
             ('a.csv', 'text/csv'), ('notes', 'application/octet-stream'), ('plots/fig.bin', 'application/octet-stream'),
@@ -333,7 +334,7 @@ class TestExecuteBundle:
             "os.makedirs(d)\n"
             "os.symlink('/etc', os.path.join(d, 'etc'))\n"
         )
-        ok, output, files = ExecuteServiceImpl(None).execute_bundle(_bundle(script), 's3')
+        ok, output, files, _, _ = ExecuteServiceImpl(None).execute_bundle(_bundle(script), 's3')
         assert ok is False
         assert output.startswith('Output files rejected: ')
         assert files == []
@@ -345,7 +346,7 @@ class TestExecuteBundle:
             "    f.write('x')\n"
             "raise SystemExit(1)\n"
         )
-        ok, _, files = ExecuteServiceImpl(None).execute_bundle(_bundle(script), 's4')
+        ok, _, files, _, _ = ExecuteServiceImpl(None).execute_bundle(_bundle(script), 's4')
         assert ok is False
         assert files == []
 
@@ -400,7 +401,7 @@ class TestRequestHandler:
             {'name': n, 'size': len(d), 'sha256': hashlib.sha256(d).hexdigest(), 'type': t, 'content': d}
             for (n, d), t in sorted(zip(KAT_FILES, ['image/png', 'text/csv']))
         ]
-        handler, attestation = self._handler((True, 'out', files))
+        handler, attestation = self._handler(BundleResult(True, 'out', files, OUTCOME_SUCCEEDED, 0))
         resp = handler._execute_encrypted_script({'session_id': 's', 'encrypted_data': 'x'})
 
         assert resp['success'] is True
@@ -413,16 +414,18 @@ class TestRequestHandler:
         assert kwargs['output'] == 'out'
 
     def test_no_files_attests_empty_manifest(self):
-        handler, attestation = self._handler((True, 'out', []))
+        handler, attestation = self._handler(BundleResult(True, 'out', [], OUTCOME_SUCCEEDED, 0))
         resp = handler._execute_encrypted_script({'session_id': 's', 'encrypted_data': 'x'})
         assert resp['files'] == []
         assert resp['files_manifest_sha256'] == EMPTY_SHA256
         assert attestation.create_execution_attestation.call_args.kwargs['files_manifest_sha256'] == EMPTY_SHA256
 
     def test_failure_returns_no_files(self):
-        handler, attestation = self._handler((False, 'Output files rejected: too many files (21 > 20)', []))
+        handler, attestation = self._handler(BundleResult(
+            False, 'Output files rejected: too many files (21 > 20)', [], OUTCOME_OUTPUT_REJECTED, 0,
+        ))
         resp = handler._execute_encrypted_script({'session_id': 's', 'encrypted_data': 'x'})
         assert resp['success'] is False
         assert 'files' not in resp
         assert 'Output files rejected: ' in resp['error']
-        attestation.create_execution_attestation.assert_not_called()
+        assert attestation.create_execution_attestation.call_args.kwargs['files_manifest_sha256'] == EMPTY_SHA256
