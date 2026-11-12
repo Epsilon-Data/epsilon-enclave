@@ -1,6 +1,15 @@
 {
   "versions": [
     {
+      "version": "1.7.0",
+      "pcr0": "35a933b8d768600e612795c5866b16f7586447c7f01c0577268403364bc644f8f503c8859064736e315b19d723001990",
+      "pcr1": "4b4d5b3661b3efc12920900c80e126e4ce783c522de6c02a2a5bf7af3a2b9327b86776f188e4be1c1c404a129dbda493",
+      "pcr2": "25a604e8322d5a21b4a344115af173a944a073c08457e036815afa74e26e725143e8175da2ea7b4c874f6538fcdb866a",
+      "release_date": "2026-11-12",
+      "docker_image": "ghcr.io/epsilon-data/epsilon-enclave@sha256:cc2a9cf01df57cc8ee7f51b454164e4d8a4657331666497d2127f454647c43ce",
+      "source_commit": "cc40e7e"
+    },
+    {
       "version": "1.6.0",
       "pcr0": "fa7679fc7bb152f63fed375c8db4be5ec632ef27d3d4f6dc7adbc4e728f57825614bdd2d766c6b45198328211f83fd3a",
       "pcr1": "4b4d5b3661b3efc12920900c80e126e4ce783c522de6c02a2a5bf7af3a2b9327b86776f188e4be1c1c404a129dbda493",
